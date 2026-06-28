@@ -13,10 +13,20 @@
       url = "github:shwewo/seafile-client";
       flake = false;
     };
+
+    seadrive-fuse = {
+      url = "github:haiwen/seadrive-fuse/v3.0.22";
+      flake = false;
+    };
+
+    seadrive-gui = {
+      url = "github:haiwen/seadrive-gui/v3.0.22";
+      flake = false;
+    };
   };
 
   outputs =
-    inputs@{ self, nixpkgs, seafile, seafile-client }:
+    inputs@{ self, nixpkgs, seafile, seafile-client, seadrive-fuse, seadrive-gui }:
     let
       systems = [
         "x86_64-linux"
@@ -39,6 +49,8 @@
             inherit pkgs lib;
             seafileSrc = seafile;
             seafileClientSrc = seafile-client;
+            seadriveFuseSrc = seadrive-fuse;
+            seadriveGuiSrc = seadrive-gui;
           };
         in
         if !pkgs.stdenv.isDarwin then
@@ -51,7 +63,8 @@
             };
           in
           {
-            inherit (base) seafile-shared seafile-client seafile-app seafile-pkg;
+            inherit (base) seafile-shared seafile-client seafile-app seafile-pkg
+                           seadrive-fuse seadrive-gui seadrive-app seadrive-pkg;
             seafile-pkg-universal = universal;
             default = base.seafile-client;
           };

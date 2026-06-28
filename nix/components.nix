@@ -45,10 +45,6 @@ let
           ];
         postPatch =
           (old.postPatch or "")
-          + lib.optionalString isDarwin ''
-            substituteInPlace CMakeLists.txt \
-              --replace 'ADD_DEFINITIONS(-DHAVE_FINDER_SYNC_SUPPORT)' "" || true
-          ''
           + lib.optionalString (isDarwin && bundleApp) ''
             substituteInPlace src/utils/utils.h \
               --replace-fail '#if defined(XCODE_APP)' '#if 1'

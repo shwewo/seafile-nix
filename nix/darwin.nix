@@ -9,13 +9,39 @@
 }:
 
 let
-  inherit (pkgs) runCommand qt6 macdylibbundler cctools coreutils findutils;
+  inherit (pkgs) runCommand qt6 macdylibbundler cctools coreutils findutils fetchurl;
   inherit (pkgs)
     xar
     bomutils
     cpio
     gzip
     ;
+
+  # Extract FinderSync extension from the official Seafile macOS DMG.
+  # The appex is built with Xcode in upstream releases; our cmake client
+  # build only needs the host-side mach-port listener (HAVE_FINDER_SYNC_SUPPORT).
+  officialDmg = fetchurl {
+    url = "https://sos-ch-dk-2.exo.io/seafile-downloads/seafile-client-9.0.19.dmg";
+    sha256 = "72b705bd3ec7142bca6fce7f069b4fe256066473f9368a9236a7b4e4e0189bd9";
+  };
+
+  findersyncAppex = runCommand "seafile-findersync-appex"
+    { nativeBuildInputs = [ coreutils findutils ]; }
+    ''
+      work=$(mktemp -d)
+      mountpoint="$work/mnt"
+      mkdir -p "$mountpoint"
+      /usr/bin/hdiutil attach ${officialDmg} -nobrowse -readonly -mountpoint "$mountpoint"
+      APPEX="$mountpoint/Seafile Client.app/Contents/PlugIns/Seafile FinderSync.appex"
+      if [[ ! -d "$APPEX" ]]; then
+        echo "error: FinderSync appex not found in official dmg; extracted:" >&2
+        find "$mountpoint" -maxdepth 8 -name "*.appex" >&2
+        /usr/bin/hdiutil detach "$mountpoint" 2>/dev/null || true
+        exit 1
+      fi
+      cp -R "$APPEX" "$out"
+      /usr/bin/hdiutil detach "$mountpoint"
+    '';
 
   bundleScript = ../scripts/darwin/bundle.sh;
   mergeScript = ../scripts/darwin/merge-universal.sh;
@@ -84,7 +110,8 @@ EOF
         macdeployqt \
         ${version} \
         ${infoPlist} \
-        ${icns}
+        ${icns} \
+        ${findersyncAppex}
     '';
 
   seafile-pkg = mkPkg "seafile-${version}.pkg" seafile-app;
