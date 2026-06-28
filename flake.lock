@@ -1,0 +1,61 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1782467914,
+        "narHash": "sha256-pGvFkM8N0xEkIIXDe5YYfbEAvHrk4IxBrjB/x8OomhE=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "e73de5be04e0eff4190a1432b946d469c794e7b4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "seafile": "seafile",
+        "seafile-client": "seafile-client"
+      }
+    },
+    "seafile": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782628940,
+        "narHash": "sha256-jjLb4bb0lX6M5qeBbrGEbQoBHx9opkB+DPFhK1XRO8o=",
+        "owner": "shwewo",
+        "repo": "seafile",
+        "rev": "237ee69ffd8898e24cf26bb8ac69ec74afc030ed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "shwewo",
+        "repo": "seafile",
+        "type": "github"
+      }
+    },
+    "seafile-client": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782623661,
+        "narHash": "sha256-O3UguQrkguNY4ZumI9e5PyCNrPoD0h6vpicWZw5TVaQ=",
+        "owner": "shwewo",
+        "repo": "seafile-client",
+        "rev": "d9f66bce1002d51f7682311b3512e8746b82208f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "shwewo",
+        "repo": "seafile-client",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
