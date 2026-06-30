@@ -53,9 +53,16 @@ let
       libffi
       libselinux
       keyutils
+      vulkan-loader
     ]);
 
   bundleLibPath = lib.makeLibraryPath bundlePkgs;
+
+  # Standard system interpreter path — replaces the Nix store path baked in at build time.
+  dynamicLinker =
+    if pkgs.stdenv.isx86_64 then "/lib64/ld-linux-x86-64.so.2"
+    else if pkgs.stdenv.isAarch64 then "/lib/ld-linux-aarch64.so.1"
+    else throw "unsupported Linux architecture for AppDir";
 
   appdir = runCommand "seafile-appdir-${version}"
     {
@@ -82,7 +89,8 @@ let
         ${qt6.qtbase} \
         ${version} \
         ${desktopFile} \
-        ${iconFile}
+        ${iconFile} \
+        ${dynamicLinker}
     '';
 
   appimageRuntime =

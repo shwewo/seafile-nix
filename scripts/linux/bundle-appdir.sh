@@ -9,6 +9,7 @@ QT_BASE="$4"
 VERSION="$5"
 DESKTOP_FILE="$6"
 ICON_FILE="$7"
+INTERP="$8"
 
 PATCHELF="${PATCHELF:-patchelf}"
 
@@ -113,6 +114,7 @@ fix_binary() {
   local bin="$1"
   local rpath="${2:-\$ORIGIN/../lib}"
   fix_elf_rpath "$bin" "$rpath"
+  [[ -n "$INTERP" ]] && "$PATCHELF" --set-interpreter "$INTERP" "$bin" 2>/dev/null || true
   readelf -d "$bin" 2>/dev/null | awk '/NEEDED/ {gsub(/[\[\]]/, "", $5); print $5}' | while read -r name; do
     [[ -z "$name" ]] && continue
     if [[ -e "$APPDIR/usr/lib/$name" ]]; then

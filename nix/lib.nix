@@ -4,7 +4,7 @@
 # Local dev: NIX_SEAFILE_LOCAL=1 nix build --impure  (reads ../seafile-src, ../seafile-client via $PWD)
 {
   lib,
-  version ? "9.0.20-mtls",
+  version ? "9.0.19-mtls",
   seafileSrc,
   seafileClientSrc,
 }:
