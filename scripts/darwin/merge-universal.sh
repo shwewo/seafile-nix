@@ -32,9 +32,16 @@ while IFS= read -r -d '' arm_file; do
       echo "error: Mach-O mismatch for $relpath" >&2
       exit 1
     fi
-    tmp="$(mktemp)"
-    "$LIPO" -create "$arm_file" "$x86_file" -output "$tmp"
-    mv "$tmp" "$out_file"
+    arm_archs=$("$LIPO" -archs "$arm_file" 2>/dev/null)
+    x86_archs=$("$LIPO" -archs "$x86_file" 2>/dev/null)
+    if [[ "$arm_archs" == "$x86_archs" ]]; then
+      # identical arch(es) in both (e.g. x86_64-only FinderSync appex) — keep as-is
+      :
+    else
+      tmp="$(mktemp)"
+      "$LIPO" -create "$arm_file" "$x86_file" -output "$tmp"
+      mv "$tmp" "$out_file"
+    fi
   fi
 done < <(find "$ARM_APP" -type f -print0)
 
