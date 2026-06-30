@@ -116,7 +116,7 @@ EOF
 
   seafile-pkg = mkPkg "seafile-${version}.pkg" seafile-app;
 
-  pkgUniversal =
+  mkUniversalPkg =
     {
       appAarch64,
       appX86_64,
@@ -140,5 +140,5 @@ EOF
 
 in
 {
-  inherit seafile-app seafile-pkg pkgUniversal;
+  inherit seafile-app seafile-pkg mkUniversalPkg;
 }

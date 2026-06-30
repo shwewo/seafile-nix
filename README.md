@@ -58,12 +58,16 @@ Works for any output, e.g. `NIX_SEAFILE_LOCAL=1 nix build .#seafile-appimage --i
 
 ## Distributables (no Nix at runtime)
 
-| Platform | Output             | Build                                           | Run                                      |
-|----------|--------------------|-------------------------------------------------|------------------------------------------|
-| Linux    | AppImage           | `nix build .#seafile-appimage`                  | `chmod +x result && ./result`            |
-| Linux    | AppDir             | `nix build .#seafile-appdir`                    | `./result/AppRun`                        |
-| macOS    | `.app`             | `nix build .#seafile-app`                       | `open result`                            |
-| macOS    | `.pkg`             | `nix build .#seafile-pkg`                       | `sudo installer -pkg result -target /`   |
-| macOS    | universal `.pkg`   | `nix build .#seafile-pkg-universal`             | same as `.pkg`                           |
+| Platform       | Output             | Build                                           | Run                                                    |
+|----------------|--------------------|-------------------------------------------------|--------------------------------------------------------|
+| Linux x86_64   | AppImage           | `nix build .#seafile-appimage`                  | `./result`                                             |
+| Linux          | AppDir             | `nix build .#seafile-appdir`                    | `./result/AppRun`                                      |
+| macOS          | `.app`             | `nix build .#seafile-app`                       | `open result/Applications/Seafile.app`                 |
+| macOS          | `.pkg`             | `nix build .#seafile-pkg`                       | `sudo installer -pkg result -target /`                 |
+| macOS          | universal `.pkg`   | `nix build .#seafile-pkg-universal`             | same as `.pkg`                                         |
+
+AppImage uses a hardcoded x86_64 runtime — build and run on x86_64 Linux only.
+
+The macOS `.app` bundle includes the FinderSync extension extracted from the official Seafile DMG (`seafile-client-9.0.19.dmg`).
 
 Universal macOS builds need Rosetta and `extra-platforms = aarch64-darwin x86_64-darwin` in Nix config.

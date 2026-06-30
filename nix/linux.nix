@@ -85,10 +85,20 @@ let
         ${iconFile}
     '';
 
-  appimageRuntime = fetchurl {
-    url = "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64";
-    hash = "sha256-HMSbzx4szVk8N5rbF8n4WjbWGQiCllBN6VsdBiFa678=";
-  };
+  appimageRuntime =
+    let
+      runtimes = {
+        "x86_64-linux" = fetchurl {
+          url = "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64";
+          hash = "sha256-HMSbzx4szVk8N5rbF8n4WjbWGQiCllBN6VsdBiFa678=";
+        };
+        "aarch64-linux" = fetchurl {
+          url = "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64";
+          hash = "sha256-fV13K3wy8MhMrwpFKjBypXCQJ9fqxYVv64mnp6iIE3I=";
+        };
+      };
+    in
+    runtimes.${pkgs.stdenv.system} or (throw "no AppImage runtime for ${pkgs.stdenv.system}");
 
   seafile-appimage = runCommand "seafile-${version}.AppImage"
     {

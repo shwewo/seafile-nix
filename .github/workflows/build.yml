@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "version=$(awk -F'"' '/version \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
+
+  appimage:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            system: x86_64-linux
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v14
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#packages.${{ matrix.system }}.seafile-appimage
+      - run: |
+          cp result "seafile-${VERSION}-${{ matrix.arch }}.AppImage"
+          sha256sum "seafile-${VERSION}-${{ matrix.arch }}.AppImage" > "seafile-${VERSION}-${{ matrix.arch }}.AppImage.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ matrix.arch }}
+          path: |
+            seafile-${{ env.VERSION }}-${{ matrix.arch }}.AppImage
+            seafile-${{ env.VERSION }}-${{ matrix.arch }}.AppImage.sha256
+
+  # Builds both arches on one M-series runner via Rosetta — same as local dev on ARM Mac.
+  universal-pkg:
+    needs: version
+    runs-on: macos-latest  # aarch64-darwin (M-series)
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: softwareupdate --install-rosetta --agree-to-license
+      - uses: DeterminateSystems/nix-installer-action@v14
+        with:
+          extra-conf: |
+            extra-platforms = x86_64-darwin aarch64-darwin
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#packages.aarch64-darwin.seafile-pkg-universal
+      - run: |
+          cp result "seafile-${VERSION}-universal.pkg"
+          shasum -a 256 "seafile-${VERSION}-universal.pkg" > "seafile-${VERSION}-universal.pkg.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: universal-pkg
+          path: |
+            seafile-${{ env.VERSION }}-universal.pkg
+            seafile-${{ env.VERSION }}-universal.pkg.sha256
+
+  release:
+    needs: [version, appimage, universal-pkg]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Create or update release
+        run: |
+          printf 'Built from commit ${{ github.sha }}\n\n' > notes.md
+          printf '## Checksums\n```\n' >> notes.md
+          cat dist/*.sha256 >> notes.md
+          printf '```\n' >> notes.md
+
+          if gh release view "$VERSION" &>/dev/null; then
+            gh release edit "$VERSION" --notes-file notes.md
+            gh release upload "$VERSION" dist/*.AppImage dist/*.pkg dist/*.sha256 --clobber
+          else
+            gh release create "$VERSION" --title "$VERSION" --notes-file notes.md \
+              dist/*.AppImage dist/*.pkg dist/*.sha256
+          fi
