@@ -2,6 +2,8 @@
 
 Sources: [shwewo/seafile](https://github.com/shwewo/seafile), [shwewo/seafile-client](https://github.com/shwewo/seafile-client) (flake inputs, pinned in `flake.lock`).
 
+CI builds AppImages for x86_64 and aarch64 Linux, plus a universal macOS `.pkg`, on every push to `main`. Artifacts are published to the [releases page](../../releases).
+
 ## Run (store-native)
 
 Same on **Linux and macOS** — default output (`nix build` → `seafile-client`):
@@ -58,15 +60,14 @@ Works for any output, e.g. `NIX_SEAFILE_LOCAL=1 nix build .#seafile-appimage --i
 
 ## Distributables (no Nix at runtime)
 
-| Platform       | Output             | Build                                           | Run                                                    |
-|----------------|--------------------|-------------------------------------------------|--------------------------------------------------------|
-| Linux x86_64   | AppImage           | `nix build .#seafile-appimage`                  | `./result`                                             |
-| Linux          | AppDir             | `nix build .#seafile-appdir`                    | `./result/AppRun`                                      |
-| macOS          | `.app`             | `nix build .#seafile-app`                       | `open result/Applications/Seafile.app`                 |
-| macOS          | `.pkg`             | `nix build .#seafile-pkg`                       | `sudo installer -pkg result -target /`                 |
-| macOS          | universal `.pkg`   | `nix build .#seafile-pkg-universal`             | same as `.pkg`                                         |
-
-AppImage uses a hardcoded x86_64 runtime — build and run on x86_64 Linux only.
+| Platform            | Output           | Build                               | Run                                              |
+|---------------------|------------------|-------------------------------------|--------------------------------------------------|
+| Linux x86_64        | AppImage         | `nix build .#seafile-appimage`      | `./result`                                       |
+| Linux aarch64       | AppImage         | `nix build .#seafile-appimage`      | `./result`                                       |
+| Linux               | AppDir           | `nix build .#seafile-appdir`        | `./result/AppRun`                                |
+| macOS               | `.app`           | `nix build .#seafile-app`           | `open result/Applications/Seafile.app`           |
+| macOS               | `.pkg`           | `nix build .#seafile-pkg`           | `sudo installer -pkg result -target /`           |
+| macOS               | universal `.pkg` | `nix build .#seafile-pkg-universal` | `sudo installer -pkg result -target /`           |
 
 The macOS `.app` bundle includes the FinderSync extension extracted from the official Seafile DMG (`seafile-client-9.0.19.dmg`).
 
