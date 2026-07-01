@@ -4,7 +4,8 @@
 # Local dev: NIX_SEAFILE_LOCAL=1 nix build --impure  (reads ../seafile-src, ../seafile-client via $PWD)
 {
   lib,
-  version ? "9.0.19-mtls",
+  version ? "9.0.20-mtls",
+  seadriveVersion ? "3.0.23-mtls",
   seafileSrc,
   seafileClientSrc,
 }:
@@ -37,7 +38,7 @@ let
 
 in
 {
-  inherit version;
+  inherit version seadriveVersion;
   seafileSrc = if useLocal then sibling "seafile-src" else seafileSrc;
   seafileClientSrc = if useLocal then sibling "seafile-client" else seafileClientSrc;
 }

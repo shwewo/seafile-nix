@@ -10,10 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      seadrive_version: ${{ steps.v.outputs.seadrive_version }}
     steps:
       - uses: actions/checkout@v4
       - id: v
-        run: echo "version=$(awk -F'"' '/version \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(awk -F'"' '/version \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
+          echo "seadrive_version=$(awk -F'"' '/seadriveVersion \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
 
   appimage:
     needs: version
@@ -29,20 +32,29 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      SEADRIVE_VERSION: ${{ needs.version.outputs.seadrive_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v14
       - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#packages.${{ matrix.system }}.seafile-appimage
+      - name: Build Seafile AppImage
+        run: nix build .#packages.${{ matrix.system }}.seafile-appimage
       - run: |
           cp result "seafile-${VERSION}-${{ matrix.arch }}.AppImage"
           sha256sum "seafile-${VERSION}-${{ matrix.arch }}.AppImage" > "seafile-${VERSION}-${{ matrix.arch }}.AppImage.sha256"
+      - name: Build SeaDrive AppImage
+        run: nix build .#packages.${{ matrix.system }}.seadrive-appimage
+      - run: |
+          cp result "seadrive-${SEADRIVE_VERSION}-${{ matrix.arch }}.AppImage"
+          sha256sum "seadrive-${SEADRIVE_VERSION}-${{ matrix.arch }}.AppImage" > "seadrive-${SEADRIVE_VERSION}-${{ matrix.arch }}.AppImage.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: appimage-${{ matrix.arch }}
           path: |
             seafile-${{ env.VERSION }}-${{ matrix.arch }}.AppImage
             seafile-${{ env.VERSION }}-${{ matrix.arch }}.AppImage.sha256
+            seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage
+            seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage.sha256
 
   # Builds both arches on one M-series runner via Rosetta — same as local dev on ARM Mac.
   universal-pkg:

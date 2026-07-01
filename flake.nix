@@ -13,10 +13,20 @@
       url = "github:shwewo/seafile-client";
       flake = false;
     };
+
+    seadrive-fuse = {
+      url = "github:shwewo/seadrive-fuse";
+      flake = false;
+    };
+
+    seadrive-gui = {
+      url = "github:shwewo/seadrive-gui";
+      flake = false;
+    };
   };
 
   outputs =
-    { self, nixpkgs, seafile, seafile-client }:
+    { self, nixpkgs, seafile, seafile-client, seadrive-fuse, seadrive-gui }:
     let
       systems = [
         "x86_64-linux"
@@ -39,6 +49,8 @@
             inherit pkgs lib;
             seafileSrc = seafile;
             seafileClientSrc = seafile-client;
+            seadriveFuseSrc = seadrive-fuse;
+            seadriveGuiSrc = seadrive-gui;
           };
         in
         packages

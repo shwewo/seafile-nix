@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Bundle nix-built Seafile binaries into a relocatable AppDir (no /nix/store refs).
+# Bundle nix-built SeaDrive binaries into a relocatable AppDir (no /nix/store refs).
 set -euo pipefail
 
 APPDIR="$1"
-CLIENT_STORE="$2"
-SHARED_STORE="$3"
+GUI_STORE="$2"
+FUSE_STORE="$3"
 QT_BASE="$4"
 VERSION="$5"
 DESKTOP_FILE="$6"
@@ -15,13 +15,13 @@ PATCHELF="${PATCHELF:-patchelf}"
 
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/plugins" "$APPDIR/usr/share/applications"
 
-cp "$CLIENT_STORE/bin/.seafile-applet-wrapped" "$APPDIR/usr/bin/seafile-applet"
-cp "$SHARED_STORE/bin/seaf-daemon" "$APPDIR/usr/bin/seaf-daemon"
-chmod u+w,+x "$APPDIR/usr/bin/seafile-applet" "$APPDIR/usr/bin/seaf-daemon"
+cp "$GUI_STORE/bin/.seadrive-gui-wrapped" "$APPDIR/usr/bin/seadrive-gui"
+cp "$FUSE_STORE/bin/seadrive" "$APPDIR/usr/bin/seadrive"
+chmod u+w,+x "$APPDIR/usr/bin/seadrive-gui" "$APPDIR/usr/bin/seadrive"
 
-cp "$DESKTOP_FILE" "$APPDIR/seafile.desktop"
-cp "$DESKTOP_FILE" "$APPDIR/usr/share/applications/seafile.desktop"
-cp "$ICON_FILE" "$APPDIR/seafile.png"
+cp "$DESKTOP_FILE" "$APPDIR/seadrive.desktop"
+cp "$DESKTOP_FILE" "$APPDIR/usr/share/applications/seadrive.desktop"
+cp "$ICON_FILE" "$APPDIR/seadrive.png"
 
 is_syslib() {
   case "$1" in
@@ -115,11 +115,12 @@ copy_deps_recursive() {
   done
 }
 
-copy_deps_recursive "$APPDIR/usr/bin/seafile-applet"
-copy_deps_recursive "$APPDIR/usr/bin/seaf-daemon"
+copy_deps_recursive "$APPDIR/usr/bin/seadrive-gui"
+copy_deps_recursive "$APPDIR/usr/bin/seadrive"
 
-# Force-bundle all Qt6 libs from LD_LIBRARY_PATH; some (e.g. libQt6QuickWidgets)
-# are only loaded via dlopen by plugins and won't appear in DT_NEEDED chains.
+# Force-bundle all Qt6 libs from LD_LIBRARY_PATH and follow their deps.
+# Some Qt6 libs (e.g. libQt6QuickWidgets, libQt6Positioning) are only loaded
+# via dlopen at runtime and won't appear in DT_NEEDED chains of our binaries.
 IFS=: read -ra _lib_dirs <<< "${LD_LIBRARY_PATH:-}"
 for _dir in "${_lib_dirs[@]}"; do
   for _f in "$_dir"/libQt6*.so*; do
@@ -134,7 +135,6 @@ for _dir in "${_lib_dirs[@]}"; do
   done
 done
 
-# Qt platform/plugins the applet needs at runtime.
 for category in platforms iconengines imageformats styles tls; do
   [[ -d "$QT_BASE/lib/qt-6/plugins/$category" ]] || continue
   mkdir -p "$APPDIR/usr/plugins/$category"
@@ -163,8 +163,8 @@ fix_binary() {
   done
 }
 
-fix_binary "$APPDIR/usr/bin/seafile-applet"
-fix_binary "$APPDIR/usr/bin/seaf-daemon"
+fix_binary "$APPDIR/usr/bin/seadrive-gui"
+fix_binary "$APPDIR/usr/bin/seadrive"
 
 while IFS= read -r -d '' plug; do
   copy_deps_recursive "$plug"
@@ -182,13 +182,13 @@ APPDIR="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$APPDIR/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export QT_PLUGIN_PATH="$APPDIR/usr/plugins"
-exec "$APPDIR/usr/bin/seafile-applet" "$@"
+exec "$APPDIR/usr/bin/seadrive-gui" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-grep -q '^Exec=' "$APPDIR/seafile.desktop" && \
-  sed -i 's|^Exec=.*|Exec=seafile-applet|' "$APPDIR/seafile.desktop" && \
-  sed -i 's|^Exec=.*|Exec=seafile-applet|' "$APPDIR/usr/share/applications/seafile.desktop"
+grep -q '^Exec=' "$APPDIR/seadrive.desktop" && \
+  sed -i 's|^Exec=.*|Exec=seadrive-gui|' "$APPDIR/seadrive.desktop" && \
+  sed -i 's|^Exec=.*|Exec=seadrive-gui|' "$APPDIR/usr/share/applications/seadrive.desktop"
 
 is_allowed_nix_ref() {
   case "$1" in
