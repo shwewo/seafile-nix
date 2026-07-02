@@ -28,11 +28,11 @@
     "seadrive-fuse": {
       "flake": false,
       "locked": {
-        "lastModified": 1782830930,
-        "narHash": "sha256-5TdlPVEgaBAvwJ7TmmyCliyH8CsAUyQlp47L6+rc+wg=",
+        "lastModified": 1782882032,
+        "narHash": "sha256-wXTPIVB+CsaBSm8mlJELxpYcNyFOSVWEXZg5kD0Wx/0=",
         "owner": "shwewo",
         "repo": "seadrive-fuse",
-        "rev": "29b46c7d4c7dc6831abc0ce7efbd572334d97ee2",
+        "rev": "dcf4f6e960be17c619f81de319f0ee6f5fe87d30",
         "type": "github"
       },
       "original": {
@@ -60,11 +60,11 @@
     "seafile": {
       "flake": false,
       "locked": {
-        "lastModified": 1782803028,
-        "narHash": "sha256-34/uql75m8fEYgC1g6Nwp5sv5e0LXTxfyuGPtIsK3q8=",
+        "lastModified": 1782962724,
+        "narHash": "sha256-tsx6T3QjJ9QrOjeyiNllHP513APhGbnXBztSLFiCSHk=",
         "owner": "shwewo",
         "repo": "seafile",
-        "rev": "881d1b72e077a9dba170193dc06fd4c514a2ddc8",
+        "rev": "26cddfa82d163654bdca084da13f2066fd9d6729",
         "type": "github"
       },
       "original": {
@@ -76,11 +76,11 @@
     "seafile-client": {
       "flake": false,
       "locked": {
-        "lastModified": 1782802780,
-        "narHash": "sha256-3iwkFI5u0LB3084DMu5cq7KzhxY2rl0b5rLybOGsb+Q=",
+        "lastModified": 1782962813,
+        "narHash": "sha256-nyvRkA7h7FVDueyr2i/7pJzOEeqioCFkSvTNb4T5QhA=",
         "owner": "shwewo",
         "repo": "seafile-client",
-        "rev": "f4f67789a8757fdc05b0743e1696ae84eadd527c",
+        "rev": "0ccb3a7f3c48c72addc53d00e8d309531652eb59",
         "type": "github"
       },
       "original": {
