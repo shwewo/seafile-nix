@@ -29,6 +29,7 @@
     { self, nixpkgs, seafile, seafile-client, seadrive-fuse, seadrive-gui }:
     let
       systems = [
+        "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
       ];
