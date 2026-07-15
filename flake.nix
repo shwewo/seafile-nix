@@ -29,10 +29,8 @@
     { self, nixpkgs, seafile, seafile-client, seadrive-fuse, seadrive-gui }:
     let
       systems = [
-        "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
-        "x86_64-darwin"
       ];
 
       lib = nixpkgs.lib;
@@ -54,13 +52,7 @@
           };
         in
         packages
-        // { default = packages.seafile-client; }
-        // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          seafile-pkg-universal = packages.mkUniversalPkg {
-            appAarch64 = self.packages.aarch64-darwin.seafile-app;
-            appX86_64 = self.packages.x86_64-darwin.seafile-app;
-          };
-        };
+        // { default = packages.seafile-client; };
     in
     {
       packages = lib.genAttrs systems forSystem;
