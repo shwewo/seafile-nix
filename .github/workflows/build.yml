@@ -56,33 +56,29 @@ jobs:
             seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage
             seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage.sha256
 
-  # Builds both arches on one M-series runner via Rosetta — same as local dev on ARM Mac.
-  universal-pkg:
+  # Builds the aarch64 macOS installer on an M-series runner.
+  aarch64-pkg:
     needs: version
     runs-on: macos-latest  # aarch64-darwin (M-series)
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - run: softwareupdate --install-rosetta --agree-to-license
       - uses: DeterminateSystems/nix-installer-action@v14
-        with:
-          extra-conf: |
-            extra-platforms = x86_64-darwin aarch64-darwin
       - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#packages.aarch64-darwin.seafile-pkg-universal
+      - run: nix build .#packages.aarch64-darwin.seafile-pkg-aarch64
       - run: |
-          cp result "seafile-${VERSION}-universal.pkg"
-          shasum -a 256 "seafile-${VERSION}-universal.pkg" > "seafile-${VERSION}-universal.pkg.sha256"
+          cp result "seafile-${VERSION}-aarch64.pkg"
+          shasum -a 256 "seafile-${VERSION}-aarch64.pkg" > "seafile-${VERSION}-aarch64.pkg.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: universal-pkg
+          name: aarch64-pkg
           path: |
-            seafile-${{ env.VERSION }}-universal.pkg
-            seafile-${{ env.VERSION }}-universal.pkg.sha256
+            seafile-${{ env.VERSION }}-aarch64.pkg
+            seafile-${{ env.VERSION }}-aarch64.pkg.sha256
 
   release:
-    needs: [version, appimage, universal-pkg]
+    needs: [version, appimage, aarch64-pkg]
     runs-on: ubuntu-latest
     permissions:
       contents: write
