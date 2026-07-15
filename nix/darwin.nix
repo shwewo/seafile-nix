@@ -1,4 +1,4 @@
-# macOS packaging: .app bundle, single-arch .pkg, and universal .pkg merge.
+# macOS packaging: .app bundle and single-arch (aarch64) .pkg.
 {
   pkgs,
   lib,
@@ -44,7 +44,6 @@ let
     '';
 
   bundleScript = ../scripts/darwin/bundle.sh;
-  mergeScript = ../scripts/darwin/merge-universal.sh;
   infoPlist = "${seafileClientSrc}/Info.plist";
   icns = "${seafileClientSrc}/seafile.icns";
 
@@ -116,29 +115,7 @@ EOF
 
   seafile-pkg = mkPkg "seafile-${version}.pkg" seafile-app;
 
-  mkUniversalPkg =
-    {
-      appAarch64,
-      appX86_64,
-    }:
-    let
-      merged-app = runCommand "seafile-app-universal-${version}"
-        {
-          nativeBuildInputs = [ cctools coreutils findutils ];
-        }
-        ''
-          cp ${mergeScript} $TMPDIR/merge.sh
-          chmod +x $TMPDIR/merge.sh
-          mkdir -p $out/Applications
-          $TMPDIR/merge.sh \
-            $out/Applications/Seafile.app \
-            ${appAarch64}/Applications/Seafile.app \
-            ${appX86_64}/Applications/Seafile.app
-        '';
-    in
-    mkPkg "seafile-${version}-universal.pkg" merged-app;
-
 in
 {
-  inherit seafile-app seafile-pkg mkUniversalPkg;
+  inherit seafile-app seafile-pkg;
 }

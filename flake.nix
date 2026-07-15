@@ -53,7 +53,10 @@
           };
         in
         packages
-        // { default = packages.seafile-client; };
+        // { default = packages.seafile-client; }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          seafile-pkg-aarch64 = packages.seafile-pkg;
+        };
     in
     {
       packages = lib.genAttrs systems forSystem;

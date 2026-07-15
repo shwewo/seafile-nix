@@ -49,8 +49,7 @@ in
   inherit (linux) seadrive-fuse seadrive-gui seadrive-appdir seadrive-appimage;
 }
 // lib.optionalAttrs pkgs.stdenv.isDarwin {
-  # nix build .#seafile-app         → Seafile.app bundle
-  # nix build .#seafile-pkg         → single-arch macOS installer
-  # nix build .#seafile-pkg-universal → universal (arm64+x86_64) macOS installer
-  inherit (darwin) seafile-app seafile-pkg mkUniversalPkg;
+  # nix build .#seafile-app → Seafile.app bundle
+  # nix build .#seafile-pkg → aarch64 macOS installer
+  inherit (darwin) seafile-app seafile-pkg;
 }
