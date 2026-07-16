@@ -1,13 +1,16 @@
 # Version and patched source trees.
 #
 # Default: flake inputs (shwewo forks).
-# Local dev: NIX_SEAFILE_LOCAL=1 nix build --impure  (reads ../seafile-src, ../seafile-client via $PWD)
+# Local dev: NIX_SEAFILE_LOCAL=1 nix build --impure  (reads sibling checkouts via $PWD:
+#   ../seafile-src, ../seafile-client, ../seadrive-fuse, ../seadrive-gui)
 {
   lib,
   version ? "9.0.20-mtls",
   seadriveVersion ? "3.0.23-mtls",
   seafileSrc,
   seafileClientSrc,
+  seadriveFuseSrc,
+  seadriveGuiSrc,
 }:
 
 let
@@ -41,4 +44,6 @@ in
   inherit version seadriveVersion;
   seafileSrc = if useLocal then sibling "seafile-src" else seafileSrc;
   seafileClientSrc = if useLocal then sibling "seafile-client" else seafileClientSrc;
+  seadriveFuseSrc = if useLocal then sibling "seadrive-fuse" else seadriveFuseSrc;
+  seadriveGuiSrc = if useLocal then sibling "seadrive-gui" else seadriveGuiSrc;
 }

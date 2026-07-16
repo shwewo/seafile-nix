@@ -10,7 +10,7 @@
 
 let
   sources = import ./lib.nix {
-    inherit lib seafileSrc seafileClientSrc;
+    inherit lib seafileSrc seafileClientSrc seadriveFuseSrc seadriveGuiSrc;
   };
 
   components = import ./components.nix {
@@ -29,9 +29,11 @@ let
   };
 
   linux = import ./linux.nix {
-    inherit pkgs lib seadriveFuseSrc seadriveGuiSrc;
+    inherit pkgs lib;
     version = sources.version;
     seadriveVersion = sources.seadriveVersion;
+    seadriveFuseSrc = sources.seadriveFuseSrc;
+    seadriveGuiSrc = sources.seadriveGuiSrc;
     seafile-client = components.seafile-client;
     seafile-shared = components.seafile-shared;
   };
