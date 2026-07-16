@@ -77,6 +77,8 @@ jobs:
             seafile-${{ env.VERSION }}-aarch64.pkg
             seafile-${{ env.VERSION }}-aarch64.pkg.sha256
 
+  # Every build publishes its own release tagged v<version>-<run#>; the newest
+  # is marked "Latest" automatically. Nothing is ever overwritten.
   release:
     needs: [version, appimage, aarch64-pkg]
     runs-on: ubuntu-latest
@@ -84,6 +86,7 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      SEADRIVE_VERSION: ${{ needs.version.outputs.seadrive_version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -91,17 +94,20 @@ jobs:
         with:
           merge-multiple: true
           path: dist
-      - name: Create or update release
+      - name: Create release
         run: |
-          printf 'Built from commit ${{ github.sha }}\n\n' > notes.md
+          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+
+          printf 'Seafile `%s` · SeaDrive `%s`\n\n' "$VERSION" "$SEADRIVE_VERSION" > notes.md
+          printf 'Built from commit %s (run [%s](%s/%s/actions/runs/%s)).\n\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> notes.md
           printf '## Checksums\n```\n' >> notes.md
           cat dist/*.sha256 >> notes.md
           printf '```\n' >> notes.md
 
-          if gh release view "$VERSION" &>/dev/null; then
-            gh release edit "$VERSION" --notes-file notes.md
-            gh release upload "$VERSION" dist/*.AppImage dist/*.pkg dist/*.sha256 --clobber
-          else
-            gh release create "$VERSION" --title "$VERSION" --notes-file notes.md \
-              dist/*.AppImage dist/*.pkg dist/*.sha256
-          fi
+          gh release create "$TAG" \
+            --title "Seafile ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+            --target "$GITHUB_SHA" \
+            --latest \
+            --notes-file notes.md \
+            dist/*.AppImage dist/*.pkg dist/*.sha256

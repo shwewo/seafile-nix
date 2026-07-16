@@ -1,78 +1,57 @@
 # Seafile mTLS — Nix flake
 
-Builds [Seafile](https://github.com/shwewo/seafile-client) and [SeaDrive](https://github.com/shwewo/seadrive-gui) desktop clients with mutual TLS support.
+[Seafile](https://github.com/shwewo/seafile-client) and [SeaDrive](https://github.com/shwewo/seadrive-gui) desktop clients built with mutual TLS support, for Linux and macOS.
 
-Sources: [shwewo/seafile](https://github.com/shwewo/seafile), [shwewo/seafile-client](https://github.com/shwewo/seafile-client), [shwewo/seadrive-fuse](https://github.com/shwewo/seadrive-fuse), [shwewo/seadrive-gui](https://github.com/shwewo/seadrive-gui).
+Sources: [seafile](https://github.com/shwewo/seafile), [seafile-client](https://github.com/shwewo/seafile-client), [seadrive-fuse](https://github.com/shwewo/seadrive-fuse), [seadrive-gui](https://github.com/shwewo/seadrive-gui).
 
-CI builds AppImages for x86_64 and aarch64 Linux, plus a universal macOS `.pkg`, on every push to `main`. Artifacts are published to the [releases page](../../releases).
+Every push to `main` builds AppImages (x86_64 + aarch64 Linux) and a macOS `.pkg`, and publishes them as a new [release](../../releases).
 
-## Packages
+## Prebuilt (no Nix)
 
-| Output | Description |
-|---|---|
-| `seafile-client` | Seafile Qt client (store-native, default) |
-| `seafile-shared` | seaf-daemon only |
-| `seafile-appdir` | Relocatable AppDir (Linux) |
-| `seafile-appimage` | Self-contained AppImage (Linux) |
-| `seadrive-gui` | SeaDrive Qt client (store-native, Linux) |
-| `seadrive-fuse` | seadrive FUSE daemon with mTLS (store-native, Linux) |
-| `seadrive-appdir` | Relocatable AppDir (Linux) |
-| `seadrive-appimage` | Self-contained AppImage (Linux) |
-| `seafile-app` | Seafile.app bundle (macOS) |
-| `seafile-pkg` | Single-arch macOS installer |
-| `seafile-pkg-universal` | Universal (arm64+x86_64) macOS installer |
-
-## Run without installing (store-native)
-
-**Seafile:**
-```bash
-nix run github:shwewo/seafile-nix
-# or
-nix build github:shwewo/seafile-nix && ./result/bin/seafile-applet
-```
-
-**SeaDrive** (Linux only):
-```bash
-nix build github:shwewo/seafile-nix#seadrive-gui && ./result/bin/seadrive-gui
-```
-
-From a local clone, substitute `github:shwewo/seafile-nix` with `.`.
-
-## AppImages (no Nix required)
-
-Download from the [releases page](../../releases), then:
+Grab an AppImage or `.pkg` from the [releases page](../../releases):
 
 ```bash
-chmod +x seafile-*.AppImage && ./seafile-*.AppImage
-chmod +x seadrive-*.AppImage && ./seadrive-*.AppImage
+chmod +x seafile-*.AppImage && ./seafile-*.AppImage   # or seadrive-*.AppImage
+sudo installer -pkg seafile-*.pkg -target /           # macOS
 ```
 
-Or build locally:
+## With Nix
 
 ```bash
-nix build .#seafile-appimage   # → ./result
-nix build .#seadrive-appimage  # → ./result
+nix run github:shwewo/seafile-nix                      # run Seafile
+nix build github:shwewo/seafile-nix#<output>           # build any output below
 ```
 
-## macOS
+Use `.#<output>` from a local clone.
+
+## Outputs
+
+| Output | Platform | Description |
+|---|---|---|
+| `seafile-client` | all | Seafile Qt client (default) |
+| `seafile-shared` | all | `seaf-daemon` only |
+| `seafile-appdir` | Linux | Relocatable [AppDir](#what-is-an-appdir) |
+| `seafile-appimage` | Linux | Self-contained AppImage |
+| `seadrive-gui` | Linux | SeaDrive Qt client |
+| `seadrive-fuse` | Linux | `seadrive` FUSE daemon |
+| `seadrive-appdir` | Linux | Relocatable AppDir |
+| `seadrive-appimage` | Linux | Self-contained AppImage |
+| `seafile-app` | macOS | `Seafile.app` bundle |
+| `seafile-pkg` | macOS | `.pkg` installer |
+
+The macOS `.app` bundles the FinderSync extension extracted from the official Seafile `9.0.19` DMG:
 
 ```bash
-# .app (open directly)
-nix build .#seafile-app
-open result/Applications/Seafile.app
-
-# universal .pkg (installs to /Applications)
-nix build .#seafile-pkg-universal
-sudo installer -pkg result -target /
+nix build .#seafile-app && open result/Applications/Seafile.app
 ```
 
-The `.app` bundle includes the FinderSync extension extracted from the official Seafile `9.0.19` DMG.
+## What is an AppDir?
 
-Universal builds need Rosetta and `extra-platforms = aarch64-darwin x86_64-darwin` in `nix.conf`.
+An **AppDir** is a relocatable directory holding the app plus every runtime dependency (libraries, plugins, resources) laid out per the AppImage spec, with an `AppRun` launcher at its root. It runs from anywhere without installation. An **AppImage** is just that AppDir packed into a single self-contained executable — so `*-appdir` is the unpacked form (handy for inspection/debugging) and `*-appimage` is the shippable one-file build.
 
 ## Local dev
 
-Check out sibling directories:
+Point at sibling checkouts instead of the locked flake inputs:
 
 ```
 ~/seafile-nix/       # this flake
@@ -80,13 +59,8 @@ Check out sibling directories:
 ~/seafile-client/    # shwewo/seafile-client
 ```
 
-Build with local trees instead of locked flake inputs:
-
 ```bash
-cd ~/seafile-nix
-NIX_SEAFILE_LOCAL=1 nix build --impure
+NIX_SEAFILE_LOCAL=1 nix build --impure   # --impure lets Nix read $PWD / ../seafile-*
 ```
 
-`--impure` is needed so Nix can read `$PWD` and resolve `../seafile-src` / `../seafile-client`.
-
-SeaDrive always uses the locked flake inputs (no local override path).
+SeaDrive always uses the locked flake inputs (no local override).
