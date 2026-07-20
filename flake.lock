@@ -44,11 +44,11 @@
     "seadrive-gui": {
       "flake": false,
       "locked": {
-        "lastModified": 1784132742,
-        "narHash": "sha256-Rn9910hV8Z8ruJTNhqFUG6b86APqPqy1T1o6y98yVeo=",
+        "lastModified": 1784553978,
+        "narHash": "sha256-k0cm+L0nDlnRKZt+LI84Vm6IqtNuB+P0a3UQZ6mlFoo=",
         "owner": "shwewo",
         "repo": "seadrive-gui",
-        "rev": "65b90b2559129b70ec1d55feecf51627697c3f55",
+        "rev": "74e78be2547001fa8617617c310956aa5e1074d8",
         "type": "github"
       },
       "original": {
