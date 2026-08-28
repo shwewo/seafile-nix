@@ -13,10 +13,12 @@ jobs:
       seadrive_version: ${{ steps.v.outputs.seadrive_version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v14
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - id: v
         run: |
-          echo "version=$(awk -F'"' '/version \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
-          echo "seadrive_version=$(awk -F'"' '/seadriveVersion \?/{print $2; exit}' nix/lib.nix)" >> "$GITHUB_OUTPUT"
+          echo "version=$(nix eval --raw .#packages.x86_64-linux.seafile-client.version)" >> "$GITHUB_OUTPUT"
+          echo "seadrive_version=$(nix eval --raw .#packages.x86_64-linux.seadrive-gui.version)" >> "$GITHUB_OUTPUT"
 
   appimage:
     needs: version

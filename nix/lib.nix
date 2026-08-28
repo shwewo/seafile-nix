@@ -3,10 +3,13 @@
 # Default: flake inputs (shwewo forks).
 # Local dev: NIX_SEAFILE_LOCAL=1 nix build --impure  (reads sibling checkouts via $PWD:
 #   ../seafile-src, ../seafile-client, ../seadrive-fuse, ../seadrive-gui)
+#
+# Package versions come from the Qt clients' CMakeLists.txt (SEAFILE_CLIENT_VERSION_*
+# / SEADRIVE_GUI_VERSION_*), plus a packaging "-mtls" suffix. That is the same idea
+# as seadroid grepping versionName out of app/build.gradle: the source tree is the
+# source of truth, so bumping upstream no longer requires a matching edit here.
 {
   lib,
-  version ? "9.0.20-mtls",
-  seadriveVersion ? "3.0.23-mtls",
   seafileSrc,
   seafileClientSrc,
   seadriveFuseSrc,
@@ -39,11 +42,44 @@ let
           );
       };
 
+  resolvedSeafileSrc = if useLocal then sibling "seafile-src" else seafileSrc;
+  resolvedClientSrc = if useLocal then sibling "seafile-client" else seafileClientSrc;
+  resolvedFuseSrc = if useLocal then sibling "seadrive-fuse" else seadriveFuseSrc;
+  resolvedGuiSrc = if useLocal then sibling "seadrive-gui" else seadriveGuiSrc;
+
+  # builtins.match is whole-string POSIX ERE and `.` does not match newlines,
+  # so match one line at a time.
+  firstMatch =
+    re: path:
+    let
+      hits = builtins.filter (l: builtins.match re l != null) (
+        lib.splitString "\n" (builtins.readFile path)
+      );
+    in
+    if hits == [ ] then
+      throw "no line matching ${re} in ${toString path}"
+    else
+      builtins.head (builtins.match re (builtins.head hits));
+
+  # SET(<prefix>_VERSION_{MAJOR,MINOR,PATCH} N)
+  cmakeVersion =
+    prefix: src:
+    let
+      file = src + "/CMakeLists.txt";
+      cap =
+        name:
+        firstMatch "SET\\(${prefix}_VERSION_${name}[[:space:]]+([0-9]+)\\)" file;
+    in
+    "${cap "MAJOR"}.${cap "MINOR"}.${cap "PATCH"}";
+
+  suffix = "-mtls";
+
 in
 {
-  inherit version seadriveVersion;
-  seafileSrc = if useLocal then sibling "seafile-src" else seafileSrc;
-  seafileClientSrc = if useLocal then sibling "seafile-client" else seafileClientSrc;
-  seadriveFuseSrc = if useLocal then sibling "seadrive-fuse" else seadriveFuseSrc;
-  seadriveGuiSrc = if useLocal then sibling "seadrive-gui" else seadriveGuiSrc;
+  version = cmakeVersion "SEAFILE_CLIENT" resolvedClientSrc + suffix;
+  seadriveVersion = cmakeVersion "SEADRIVE_GUI" resolvedGuiSrc + suffix;
+  seafileSrc = resolvedSeafileSrc;
+  seafileClientSrc = resolvedClientSrc;
+  seadriveFuseSrc = resolvedFuseSrc;
+  seadriveGuiSrc = resolvedGuiSrc;
 }
