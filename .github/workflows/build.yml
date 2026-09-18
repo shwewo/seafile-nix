@@ -36,6 +36,7 @@ jobs:
 
   appimage:
     needs: [version, patches]
+    name: appimage (${{ matrix.arch }})
     strategy:
       matrix:
         include:
