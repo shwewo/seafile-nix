@@ -1,57 +1,93 @@
 # Build Seafile mTLS packages for the current platform.
+#
+# Each component is pristine upstream source, fetched at the tag pinned in
+# ../flake.nix, with nix/patches/<name>-mtls.patch applied on top via
+# pkgs.applyPatches. There is no fork checkout involved — upstream plus a
+# patch is the whole story. See ../flake.nix for how to bump a version.
 {
   pkgs,
   lib,
-  seafileSrc,
-  seafileClientSrc,
-  seadriveFuseSrc,
-  seadriveGuiSrc,
+  versions,
 }:
 
 let
-  sources = import ./lib.nix {
-    inherit lib seafileSrc seafileClientSrc seadriveFuseSrc seadriveGuiSrc;
-  };
+  # "v9.0.20" -> "9.0.20-mtls"
+  versionOf = name: lib.removePrefix "v" versions.${name}.rev + "-mtls";
+
+  mkSrc =
+    name:
+    pkgs.applyPatches {
+      name = "${name}-mtls-src";
+      version = versionOf name;
+      src = pkgs.fetchFromGitHub versions.${name};
+      patches = [ ./patches/${name}-mtls.patch ];
+    };
+
+  seafileSrc = mkSrc "seafile";
+  seafileClientSrc = mkSrc "seafile-client";
+  seadriveFuseSrc = mkSrc "seadrive-fuse";
+  seadriveGuiSrc = mkSrc "seadrive-gui";
+  seadroidSrc = mkSrc "seadroid";
+
+  # seaf-daemon and the Qt client are packaged under one version label even
+  # though their upstream tags can drift slightly (see versionOf); this
+  # matches how upstream releases them (in lockstep) closely enough for a
+  # package version string.
+  version = versionOf "seafile-client";
+  seadriveVersion = versionOf "seadrive-gui";
 
   components = import ./components.nix {
-    inherit pkgs lib;
-    version = sources.version;
-    seafileSrc = sources.seafileSrc;
-    seafileClientSrc = sources.seafileClientSrc;
+    inherit pkgs lib version;
+    seafileSrc = seafileSrc;
+    seafileClientSrc = seafileClientSrc;
   };
 
   darwin = import ./darwin.nix {
-    inherit pkgs lib;
-    version = sources.version;
-    seafileClientSrc = sources.seafileClientSrc;
+    inherit pkgs lib version;
+    seafileClientSrc = seafileClientSrc;
     seafile-client = components.seafile-client-app;
     seafile-shared = components.seafile-shared;
   };
 
   linux = import ./linux.nix {
-    inherit pkgs lib;
-    version = sources.version;
-    seadriveVersion = sources.seadriveVersion;
-    seadriveFuseSrc = sources.seadriveFuseSrc;
-    seadriveGuiSrc = sources.seadriveGuiSrc;
+    inherit pkgs lib version seadriveVersion;
+    seadriveFuseSrc = seadriveFuseSrc;
+    seadriveGuiSrc = seadriveGuiSrc;
     seafile-client = components.seafile-client;
     seafile-shared = components.seafile-shared;
   };
 
+  android = import ./android.nix {
+    inherit pkgs lib;
+    seadroidSrc = seadroidSrc;
+  };
+
+  packages =
+    {
+      # nix build .#seafile-shared      → seaf-daemon only (all platforms)
+      # nix build .#seafile-client      → Seafile Qt client, default output (all platforms)
+      inherit (components) seafile-shared seafile-client;
+
+      # nix build .#seadroid-src        → patched Android source (all platforms)
+      # nix run   .#seadroid-debug-apk  → builds + drops an unsigned debug APK in $PWD (needs network at run time, see nix/android.nix)
+      seadroid-src = android.src;
+      seadroid-debug-apk = android.debugApk;
+    }
+    // lib.optionalAttrs pkgs.stdenv.isLinux {
+      # Linux AppDir / AppImage outputs and SeaDrive derivations — see nix/linux.nix
+      seafile-appdir = linux.appdir;
+      seafile-appimage = linux.seafile-appimage;
+      inherit (linux) seadrive-fuse seadrive-gui seadrive-appdir seadrive-appimage;
+    }
+    // lib.optionalAttrs pkgs.stdenv.isDarwin {
+      # nix build .#seafile-app → Seafile.app bundle
+      # nix build .#seafile-pkg → aarch64 macOS installer
+      inherit (darwin) seafile-app seafile-pkg;
+    };
+
 in
 {
-  # nix build .#seafile-shared      → seaf-daemon only (all platforms)
-  # nix build .#seafile-client      → Seafile Qt client, default output (all platforms)
-  inherit (components) seafile-shared seafile-client;
-}
-// lib.optionalAttrs pkgs.stdenv.isLinux {
-  # Linux AppDir / AppImage outputs and SeaDrive derivations — see nix/linux.nix
-  seafile-appdir = linux.appdir;
-  seafile-appimage = linux.seafile-appimage;
-  inherit (linux) seadrive-fuse seadrive-gui seadrive-appdir seadrive-appimage;
-}
-// lib.optionalAttrs pkgs.stdenv.isDarwin {
-  # nix build .#seafile-app → Seafile.app bundle
-  # nix build .#seafile-pkg → aarch64 macOS installer
-  inherit (darwin) seafile-app seafile-pkg;
+  inherit packages;
+  # nix develop .#android → JDK + Android SDK for building seadroid, see nix/android.nix
+  devShells.android = android.devShell;
 }

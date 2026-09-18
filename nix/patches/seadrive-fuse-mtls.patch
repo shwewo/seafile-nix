@@ -1,0 +1,470 @@
+diff --git a/src/http-tx-mgr.c b/src/http-tx-mgr.c
+index 9206d1e..8ed852b 100644
+--- a/src/http-tx-mgr.c
++++ b/src/http-tx-mgr.c
+@@ -64,6 +64,27 @@ struct _ConnectionPool {
+ };
+ typedef struct _ConnectionPool ConnectionPool;
+ 
++/* Per-host mutual-TLS client certificate. */
++typedef struct ClientCert {
++    char *cert_path;
++    char *key_path;
++    char *cert_type;    /* "PEM" or "P12" */
++    char *password;
++} ClientCert;
++
++static void
++client_cert_free (void *data)
++{
++    ClientCert *c = data;
++    if (!c)
++        return;
++    g_free (c->cert_path);
++    g_free (c->key_path);
++    g_free (c->cert_type);
++    g_free (c->password);
++    g_free (c);
++}
++
+ struct _HttpTxPriv {
+     GHashTable *download_tasks;
+     GHashTable *upload_tasks;
+@@ -75,6 +96,11 @@ struct _HttpTxPriv {
+ 
+     char *env_ca_bundle_path;
+ 
++    GHashTable *client_certs;          /* host (lowercase) -> ClientCert* */
++    pthread_mutex_t client_certs_lock;
++    char *client_certs_path;
++    gint64 client_certs_mtime;
++
+     // Uploaded file count
+     gint uploaded;
+     // Upload failed count
+@@ -295,6 +321,13 @@ http_tx_manager_new (struct _SeafileSession *seaf)
+     priv->connection_pools = g_hash_table_new (g_str_hash, g_str_equal);
+     pthread_mutex_init (&priv->pools_lock, NULL);
+ 
++    priv->client_certs = g_hash_table_new_full (g_str_hash, g_str_equal,
++                                                g_free, client_cert_free);
++    pthread_mutex_init (&priv->client_certs_lock, NULL);
++    priv->client_certs_path = g_build_filename (seaf->seaf_dir,
++                                                "client-ssl-certs.json", NULL);
++    priv->client_certs_mtime = 0;
++
+     env_ca_path = g_getenv("SEAFILE_SSL_CA_PATH");
+     if (env_ca_path)
+         priv->env_ca_bundle_path = g_strdup (env_ca_path);
+@@ -405,6 +438,148 @@ load_ca_bundle(CURL *curl)
+         curl_easy_setopt (curl, CURLOPT_CAINFO, ca_path);
+ }
+ 
++/* Extract the (lowercased) host from a URL like "https://host:port/path". */
++static char *
++parse_host_from_url (const char *url)
++{
++    const char *p, *end;
++    char *host, *lower;
++
++    if (!url)
++        return NULL;
++
++    p = strstr (url, "://");
++    p = p ? p + 3 : url;
++    end = p;
++    while (*end && *end != '/' && *end != ':' && *end != '?')
++        end++;
++    if (end == p)
++        return NULL;
++
++    host = g_strndup (p, end - p);
++    lower = g_ascii_strdown (host, -1);
++    g_free (host);
++    return lower;
++}
++
++/* (Re)load the per-host certificate map if the backing file changed.
++ * Caller must hold priv->client_certs_lock. */
++static void
++reload_client_certs (HttpTxPriv *priv)
++{
++    GStatBuf st;
++    json_t *root;
++    json_error_t jerror;
++    const char *host;
++    json_t *entry;
++
++    if (g_stat (priv->client_certs_path, &st) != 0) {
++        if (g_hash_table_size (priv->client_certs) > 0)
++            g_hash_table_remove_all (priv->client_certs);
++        priv->client_certs_mtime = 0;
++        return;
++    }
++
++    if ((gint64)st.st_mtime == priv->client_certs_mtime)
++        return;
++    priv->client_certs_mtime = (gint64)st.st_mtime;
++
++    g_hash_table_remove_all (priv->client_certs);
++
++    root = json_load_file (priv->client_certs_path, 0, &jerror);
++    if (!root) {
++        seaf_warning ("Failed to parse %s: %s\n",
++                      priv->client_certs_path, jerror.text);
++        return;
++    }
++    if (!json_is_object (root)) {
++        json_decref (root);
++        return;
++    }
++
++    json_object_foreach (root, host, entry) {
++        if (!json_is_object (entry))
++            continue;
++        const char *cert_path = json_string_value (json_object_get (entry, "cert_path"));
++        if (!cert_path || cert_path[0] == 0)
++            continue;
++        ClientCert *c = g_new0 (ClientCert, 1);
++        c->cert_path = g_strdup (cert_path);
++        c->key_path = g_strdup (json_string_value (json_object_get (entry, "key_path")));
++        c->cert_type = g_strdup (json_string_value (json_object_get (entry, "cert_type")));
++        c->password = g_strdup (json_string_value (json_object_get (entry, "cert_password")));
++        g_hash_table_insert (priv->client_certs, g_ascii_strdown (host, -1), c);
++    }
++
++    json_decref (root);
++}
++
++gboolean
++http_tx_manager_get_client_cert (const char *host,
++                                 char **cert_path, char **key_path,
++                                 char **cert_type, char **password)
++{
++    HttpTxPriv *priv = seaf->http_tx_mgr->priv;
++    ClientCert *c;
++    char *h = host ? g_ascii_strdown (host, -1) : NULL;
++    gboolean found = FALSE;
++
++    *cert_path = *key_path = *cert_type = *password = NULL;
++
++    pthread_mutex_lock (&priv->client_certs_lock);
++    reload_client_certs (priv);
++    if (h && (c = g_hash_table_lookup (priv->client_certs, h)) != NULL) {
++        *cert_path = g_strdup (c->cert_path);
++        *key_path = g_strdup (c->key_path);
++        *cert_type = g_strdup (c->cert_type);
++        *password = g_strdup (c->password);
++        found = TRUE;
++    }
++    pthread_mutex_unlock (&priv->client_certs_lock);
++    g_free (h);
++
++    return found;
++}
++
++static void
++load_client_cert (CURL *curl, const char *url)
++{
++    char *host = parse_host_from_url (url);
++    char *cert_path = NULL, *key_path = NULL, *cert_type = NULL, *password = NULL;
++
++    if (!http_tx_manager_get_client_cert (host, &cert_path, &key_path,
++                                          &cert_type, &password)) {
++        g_free (host);
++        return;
++    }
++
++    if (cert_path && cert_path[0]) {
++        if (!seaf_util_exists (cert_path)) {
++            seaf_warning ("Client TLS certificate %s does not exist, "
++                          "mutual TLS disabled for this request.\n", cert_path);
++        } else {
++            curl_easy_setopt (curl, CURLOPT_SSLCERT, cert_path);
++            if (cert_type && cert_type[0])
++                curl_easy_setopt (curl, CURLOPT_SSLCERTTYPE, cert_type);
++
++            if (key_path && key_path[0]) {
++                curl_easy_setopt (curl, CURLOPT_SSLKEY, key_path);
++                if (cert_type && cert_type[0])
++                    curl_easy_setopt (curl, CURLOPT_SSLKEYTYPE, cert_type);
++            }
++
++            if (password && password[0])
++                curl_easy_setopt (curl, CURLOPT_KEYPASSWD, password);
++        }
++    }
++
++    g_free (host);
++    g_free (cert_path);
++    g_free (key_path);
++    g_free (cert_type);
++    g_free (password);
++}
++
+ #endif  /* USE_GPL_CRYPTO */
+ 
+ static void
+@@ -527,6 +702,9 @@ http_get_common (CURL *curl, const char *url,
+ 
+     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
+     set_proxy (curl, is_https);
++#ifndef USE_GPL_CRYPTO
++    load_client_cert (curl, url);
++#endif
+ 
+     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+     curl_easy_setopt(curl, CURLOPT_UNRESTRICTED_AUTH, 1L);
+@@ -794,6 +972,9 @@ http_put (CURL *curl, const char *url, const char *token,
+ 
+     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
+     set_proxy (curl, is_https);
++#ifndef USE_GPL_CRYPTO
++    load_client_cert (curl, url);
++#endif
+ 
+     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+ 
+@@ -891,6 +1072,9 @@ http_post_common (CURL *curl, const char *url,
+ 
+     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
+     set_proxy (curl, is_https);
++#ifndef USE_GPL_CRYPTO
++    load_client_cert (curl, url);
++#endif
+ 
+     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+     curl_easy_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
+@@ -1074,6 +1258,9 @@ http_delete_common (CURL *curl, const char *url,
+ 
+     gboolean is_https = (strncasecmp(url, "https", strlen("https")) == 0);
+     set_proxy (curl, is_https);
++#ifndef USE_GPL_CRYPTO
++    load_client_cert (curl, url);
++#endif
+ 
+     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+     curl_easy_setopt(curl, CURLOPT_UNRESTRICTED_AUTH, 1L);
+diff --git a/src/http-tx-mgr.h b/src/http-tx-mgr.h
+index 8cca3fa..d646e62 100644
+--- a/src/http-tx-mgr.h
++++ b/src/http-tx-mgr.h
+@@ -120,6 +120,13 @@ struct _HttpTxTask {
+ };
+ typedef struct _HttpTxTask HttpTxTask;
+ 
++#ifndef USE_GPL_CRYPTO
++gboolean
++http_tx_manager_get_client_cert (const char *host,
++                                 char **cert_path, char **key_path,
++                                 char **cert_type, char **password);
++#endif
++
+ HttpTxManager *
+ http_tx_manager_new (struct _SeafileSession *seaf);
+ 
+diff --git a/src/notif-mgr.c b/src/notif-mgr.c
+index f44aebe..85cdd4d 100644
+--- a/src/notif-mgr.c
++++ b/src/notif-mgr.c
+@@ -4,6 +4,11 @@
+ #include <libwebsockets.h>
+ #include <string.h>
+ #include <glib.h>
++#ifndef USE_GPL_CRYPTO
++#include <openssl/ssl.h>
++#include <openssl/pkcs12.h>
++#include <openssl/x509.h>
++#endif
+ 
+ #include "seafile-session.h"
+ #include "seafile-config.h"
+@@ -39,7 +44,11 @@ typedef struct NotifServer {
+     char    *addr;
+     char    *path;
+     int     port;
++    char    *proxy_addr;
+ 
++#ifndef USE_GPL_CRYPTO
++    SSL_CTX *ssl_ctx;
++#endif
+     gint    refcnt;
+ } NotifServer;
+ 
+@@ -170,7 +179,7 @@ static void
+ notif_server_ref (NotifServer *server);
+ 
+ static struct lws_context *
+-lws_context_new (gboolean use_ssl);
++lws_context_new (NotifServer *server, gboolean use_ssl, const char *host);
+ 
+ static void
+ init_client_connect_info (NotifServer *server);
+@@ -214,7 +223,7 @@ reset_lws_context (NotifServer *server)
+ 
+     server->wsi = NULL;
+ 
+-    server->context = lws_context_new (server->use_ssl);
++    server->context = lws_context_new (server, server->use_ssl, server->addr);
+     if (!server->context)
+         return -1;
+ 
+@@ -245,7 +254,6 @@ notif_new_server (const char *server_url, gboolean use_notif_server_port)
+     if (strncmp(server_url, "https", 5) == 0) {
+         use_ssl = TRUE;
+     }
+-    
+ 
+     server = g_new0 (NotifServer, 1);
+ 
+@@ -305,9 +313,14 @@ notif_server_free (NotifServer *server)
+         return;
+     if (server->context)
+         lws_context_destroy(server->context);
++#ifndef USE_GPL_CRYPTO
++    if (server->ssl_ctx)
++        SSL_CTX_free (server->ssl_ctx);
++#endif
+     g_free (server->server_url);
+     g_free (server->addr);
+     g_free (server->path);
++    g_free (server->proxy_addr);
+     if (server->subscriptions)
+         g_hash_table_destroy (server->subscriptions);
+ 
+@@ -437,6 +450,10 @@ static int
+ event_callback (struct lws *wsi, enum lws_callback_reasons reason,
+                 void *user, void *in, size_t len)
+ {
++    /* lws passes SSL_CTX* as 'user' for this callback, not a NotifServer. */
++    if (reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS)
++        return 0;
++
+     NotifServer *server = (NotifServer *)user;
+     Message *msg = NULL;
+     int m;
+@@ -870,10 +887,13 @@ static const struct lws_protocols protocols[] = {
+ };
+ 
+ static struct lws_context *
+-lws_context_new (gboolean use_ssl)
++lws_context_new (NotifServer *server, gboolean use_ssl, const char *host)
+ {
+     struct lws_context_creation_info info;
+     struct lws_context *context = NULL;
++#ifndef USE_GPL_CRYPTO
++    char *cert_path = NULL, *key_path = NULL, *cert_type = NULL, *password = NULL;
++#endif
+     char *http_proxy_addr = NULL;
+     char *socks_proxy_addr = NULL;
+     gboolean has_auth = proxy_has_auth ();
+@@ -896,21 +916,109 @@ lws_context_new (gboolean use_ssl)
+             info.http_proxy_port = has_auth ? 0 :
+                                    (seaf->http_proxy_port > 0 ? seaf->http_proxy_port : 80);
+         } else if (g_strcmp0 (seaf->http_proxy_type, PROXY_TYPE_SOCKS) == 0) {
++#if defined(LWS_WITH_SOCKS5)
+             if (seaf->http_proxy_port >= 0) {
+                 socks_proxy_addr = has_auth ? build_proxy_address (1080) : g_strdup (seaf->http_proxy_addr);
+                 info.socks_proxy_address = socks_proxy_addr;
+                 info.socks_proxy_port = has_auth ? 0 :
+                                     (seaf->http_proxy_port > 0 ? seaf->http_proxy_port : 1080);
+             }
++#else
++            seaf_warning ("SOCKS proxy is not supported for the notification "
++                          "server (libwebsockets built without SOCKS5 support).\n");
++#endif
+         }
+     }
+ 
+     if (use_ssl) {
+          info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+          info.client_ssl_ca_filepath = priv->ca_bundle_path;
++
++#ifndef USE_GPL_CRYPTO
++         /* Mutual TLS: present the client certificate configured for this host. */
++         if (http_tx_manager_get_client_cert (host, &cert_path, &key_path,
++                                              &cert_type, &password) &&
++             cert_path && cert_path[0]) {
++             if (cert_type && g_ascii_strcasecmp (cert_type, "P12") == 0) {
++                 /* lws cannot load PKCS#12 directly. Build a pre-configured
++                  * SSL_CTX with the parsed cert/key and hand it to lws via
++                  * provided_client_ssl_ctx so lws skips its own cert setup. */
++                 SSL_CTX *ssl_ctx = SSL_CTX_new (TLS_client_method ());
++                 if (ssl_ctx) {
++                     SSL_CTX_set_verify (ssl_ctx, SSL_VERIFY_PEER, NULL);
++                     if (SSL_CTX_load_verify_locations (ssl_ctx, priv->ca_bundle_path, NULL) != 1)
++                         SSL_CTX_set_default_verify_paths (ssl_ctx);
++
++                     FILE *fp = g_fopen (cert_path, "rb");
++                     if (fp) {
++                         PKCS12 *p12 = d2i_PKCS12_fp (fp, NULL);
++                         fclose (fp);
++                         if (p12) {
++                             EVP_PKEY *pkey = NULL;
++                             X509 *x509 = NULL;
++                             STACK_OF(X509) *ca = NULL;
++                             if (PKCS12_parse (p12, password ? password : "",
++                                               &pkey, &x509, &ca)) {
++                                 if (x509 && pkey) {
++                                     int i;
++                                     SSL_CTX_use_certificate (ssl_ctx, x509);
++                                     SSL_CTX_use_PrivateKey (ssl_ctx, pkey);
++                                     if (ca)
++                                         for (i = 0; i < sk_X509_num (ca); i++) {
++                                             X509 *dup = X509_dup (sk_X509_value (ca, i));
++                                             if (dup)
++                                                 SSL_CTX_add_extra_chain_cert (ssl_ctx, dup);
++                                         }
++                                     server->ssl_ctx = ssl_ctx;
++                                     info.provided_client_ssl_ctx = ssl_ctx;
++                                     seaf_message ("Loaded PKCS#12 client certificate "
++                                                   "%s for notifications.\n", cert_path);
++                                 } else {
++                                     seaf_warning ("PKCS#12 bundle %s is missing "
++                                                   "certificate or key\n", cert_path);
++                                     SSL_CTX_free (ssl_ctx);
++                                 }
++                                 EVP_PKEY_free (pkey);
++                                 X509_free (x509);
++                                 if (ca) sk_X509_pop_free (ca, X509_free);
++                             } else {
++                                 seaf_warning ("Failed to decrypt PKCS#12 bundle %s "
++                                               "(wrong password?)\n", cert_path);
++                                 SSL_CTX_free (ssl_ctx);
++                             }
++                             PKCS12_free (p12);
++                         } else {
++                             seaf_warning ("Failed to parse PKCS#12 bundle %s\n",
++                                           cert_path);
++                             SSL_CTX_free (ssl_ctx);
++                         }
++                     } else {
++                         seaf_warning ("Failed to open PKCS#12 bundle %s: %s\n",
++                                       cert_path, strerror (errno));
++                         SSL_CTX_free (ssl_ctx);
++                     }
++                 }
++             } else {
++                 /* PEM certificate (+ optional key) loaded directly by lws. */
++                 info.client_ssl_cert_filepath = cert_path;
++                 if (key_path && key_path[0])
++                     info.client_ssl_private_key_filepath = key_path;
++                 if (password && password[0])
++                     info.client_ssl_private_key_password = password;
++             }
++         }
++#endif
+     }
+ 
+     context = lws_create_context(&info);
++
++#ifndef USE_GPL_CRYPTO
++    g_free (cert_path);
++    g_free (key_path);
++    g_free (cert_type);
++    g_free (password);
++#endif
++
+     if (!context) {
+         g_free (http_proxy_addr);
+         g_free (socks_proxy_addr);

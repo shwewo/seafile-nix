@@ -11,6 +11,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       seadrive_version: ${{ steps.v.outputs.seadrive_version }}
+      seadroid_version: ${{ steps.v.outputs.seadroid_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v14
@@ -19,6 +20,7 @@ jobs:
         run: |
           echo "version=$(nix eval --raw .#packages.x86_64-linux.seafile-client.version)" >> "$GITHUB_OUTPUT"
           echo "seadrive_version=$(nix eval --raw .#packages.x86_64-linux.seadrive-gui.version)" >> "$GITHUB_OUTPUT"
+          echo "seadroid_version=$(nix eval --raw .#packages.x86_64-linux.seadroid-src.version)" >> "$GITHUB_OUTPUT"
 
   appimage:
     needs: version
@@ -79,16 +81,87 @@ jobs:
             seafile-${{ env.VERSION }}-aarch64.pkg
             seafile-${{ env.VERSION }}-aarch64.pkg.sha256
 
+  # Builds the Android APK. Gradle resolves dependencies from Maven at build
+  # time, so — unlike every other job here — this isn't a hermetic `nix
+  # build`: Nix only provisions the JDK + Android SDK/NDK/CMake (reproducibly
+  # pinned, see nix/android.nix); `nix develop .#android` puts those on PATH
+  # and Gradle does the rest with normal network access.
+  #
+  # Signing: if the ANDROID_KEYSTORE_BASE64 repo secret is set, this builds
+  # a real release APK signed with it. Otherwise it falls back to a
+  # throwaway keystore generated on the runner, producing an unsigned-for-
+  # distribution debug build — that always works with zero setup, so the
+  # pipeline never blocks on secrets that don't exist yet. See README.md for
+  # how to generate a real release key.
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      SEADROID_VERSION: ${{ needs.version.outputs.seadroid_version }}
+      HAS_RELEASE_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v14
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      # No release key configured: reuse the same `nix run .#seadroid-debug-apk`
+      # a developer would use locally (see README.md's Android section) —
+      # one script, no logic duplicated between CI and local use.
+      - name: Build unsigned debug APK
+        if: env.HAS_RELEASE_KEY != 'true'
+        run: |
+          nix run .#seadroid-debug-apk
+          mv seafile-debug-*.apk "seadroid-${SEADROID_VERSION}.apk"
+      # Release key configured: same source, but signed with the real key
+      # from secrets instead of the debug script's throwaway one.
+      - name: Fetch patched source
+        if: env.HAS_RELEASE_KEY == 'true'
+        run: |
+          nix build .#packages.x86_64-linux.seadroid-src -o seadroid-src
+          cp -rL seadroid-src seadroid-build
+          chmod -R u+w seadroid-build
+      - name: Set up release signing
+        if: env.HAS_RELEASE_KEY == 'true'
+        working-directory: seadroid-build/app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          cat > key.properties <<EOF
+          keyStore=release.keystore
+          keyStorePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+      - name: Build release APK
+        if: env.HAS_RELEASE_KEY == 'true'
+        working-directory: seadroid-build
+        run: |
+          nix develop .. .#android -c ./gradlew assembleRelease --console=plain
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$APK" "../seadroid-${SEADROID_VERSION}.apk"
+      - run: sha256sum "seadroid-${SEADROID_VERSION}.apk" > "seadroid-${SEADROID_VERSION}.apk.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            seadroid-${{ env.SEADROID_VERSION }}.apk
+            seadroid-${{ env.SEADROID_VERSION }}.apk.sha256
+
   # Every build publishes its own release tagged v<version>-<run#>; the newest
   # is marked "Latest" automatically. Nothing is ever overwritten.
   release:
-    needs: [version, appimage, aarch64-pkg]
+    needs: [version, appimage, aarch64-pkg, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       SEADRIVE_VERSION: ${{ needs.version.outputs.seadrive_version }}
+      SEADROID_VERSION: ${{ needs.version.outputs.seadroid_version }}
+      HAS_RELEASE_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +173,10 @@ jobs:
         run: |
           TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
 
-          printf 'Seafile `%s` · SeaDrive `%s`\n\n' "$VERSION" "$SEADRIVE_VERSION" > notes.md
+          printf 'Seafile `%s` · SeaDrive `%s` · Android `%s`%s\n\n' \
+            "$VERSION" "$SEADRIVE_VERSION" "$SEADROID_VERSION" \
+            "$([ "$HAS_RELEASE_KEY" = "true" ] && echo "" || echo " (unsigned debug build — no ANDROID_KEYSTORE_BASE64 secret set)")" \
+            > notes.md
           printf 'Built from commit %s (run [%s](%s/%s/actions/runs/%s)).\n\n' \
             "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> notes.md
           printf '## Checksums\n```\n' >> notes.md
@@ -112,4 +188,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --latest \
             --notes-file notes.md \
-            dist/*.AppImage dist/*.pkg dist/*.sha256
+            dist/*.AppImage dist/*.pkg dist/*.apk dist/*.sha256

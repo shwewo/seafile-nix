@@ -1,0 +1,1924 @@
+diff --git a/app/src/main/java/com/seafile/seadroid2/account/Account.java b/app/src/main/java/com/seafile/seadroid2/account/Account.java
+index 7a548e60..fc802040 100644
+--- a/app/src/main/java/com/seafile/seadroid2/account/Account.java
++++ b/app/src/main/java/com/seafile/seadroid2/account/Account.java
+@@ -124,12 +124,18 @@ public class Account extends BaseModel implements Parcelable, Comparable<Account
+         return email;
+     }
+ 
+-    public void setContactEmail(String contact_email) {
+-        this.contact_email = contact_email;
++    public String getContactEmail() {
++        if (!TextUtils.isEmpty(contact_email)) {
++            return contact_email;
++        }
++        if (!TextUtils.isEmpty(email) && email.endsWith("@auth.local")) {
++            return "";
++        }
++        return email;
+     }
+ 
+-    public String getContactEmail() {
+-        return contact_email;
++    public void setContactEmail(String contact_email) {
++        this.contact_email = contact_email;
+     }
+ 
+     public String getAvatarUrl() {
+diff --git a/app/src/main/java/com/seafile/seadroid2/account/AccountUtils.java b/app/src/main/java/com/seafile/seadroid2/account/AccountUtils.java
+index 1d6c38f4..a49299b8 100644
+--- a/app/src/main/java/com/seafile/seadroid2/account/AccountUtils.java
++++ b/app/src/main/java/com/seafile/seadroid2/account/AccountUtils.java
+@@ -30,6 +30,9 @@ public class AccountUtils {
+ 
+         //
+         CertsManager.instance().deleteCertForAccount(account);
++        // NOTE: the client-cert (mTLS) binding is intentionally NOT removed on sign-out, so
++        // signing back in works without re-picking the certificate. It is dropped only when
++        // the account is permanently removed (see AccountViewModel.deleteAccount).
+ 
+         NotificationUtils.cancelAll();
+ 
+diff --git a/app/src/main/java/com/seafile/seadroid2/account/Authenticator.java b/app/src/main/java/com/seafile/seadroid2/account/Authenticator.java
+index 51153bb6..7b2496a9 100644
+--- a/app/src/main/java/com/seafile/seadroid2/account/Authenticator.java
++++ b/app/src/main/java/com/seafile/seadroid2/account/Authenticator.java
+@@ -43,6 +43,10 @@ public class Authenticator extends AbstractAccountAuthenticator {
+      * Key of email in userData
+      */
+     public static final String KEY_EMAIL = "email";
++
++    /**
++     * Key of contact email in userData
++     */
+     public static final String KEY_CONTACT_EMAIL = "contact_email";
+     /**
+      * Key of name in userData
+diff --git a/app/src/main/java/com/seafile/seadroid2/account/SupportAccountManager.java b/app/src/main/java/com/seafile/seadroid2/account/SupportAccountManager.java
+index 3c46faa7..2330abc4 100644
+--- a/app/src/main/java/com/seafile/seadroid2/account/SupportAccountManager.java
++++ b/app/src/main/java/com/seafile/seadroid2/account/SupportAccountManager.java
+@@ -148,12 +148,12 @@ public class SupportAccountManager {
+         String usageSpace = accountManager.getUserData(androidAccount, Authenticator.SPACE_USAGE);
+ 
+         Account account = new Account();
+-        account.setName(name);
+-        account.setServer(server);
+-        account.setEmail(email);
+-        account.setContactEmail(contactEmail);
+-        account.setAvatarUrl(avatarUrl);
+-        account.setToken(token);
++        account.name = name;
++        account.server = server;
++        account.email = email;
++        account.contact_email = contactEmail;
++        account.avatar_url = avatarUrl;
++        account.token = token;
+         account.is_shib = isShib;
+         account.setSessionKey(sessionKey);
+ 
+@@ -223,6 +223,14 @@ public class SupportAccountManager {
+         accountManager.setUserData(account, key, value);
+     }
+ 
++    public void setContactEmail(Account account, String contactEmail) {
++        if (account == null) {
++            return;
++        }
++        account.setContactEmail(contactEmail);
++        setUserData(account.getAndroidAccount(), Authenticator.KEY_CONTACT_EMAIL, contactEmail);
++    }
++
+     public String getUserData(final android.accounts.Account account, final String key) {
+         return accountManager.getUserData(account, key);
+     }
+diff --git a/app/src/main/java/com/seafile/seadroid2/framework/datastore/DataStoreKeys.java b/app/src/main/java/com/seafile/seadroid2/framework/datastore/DataStoreKeys.java
+index 5dd4fce9..9bed7813 100644
+--- a/app/src/main/java/com/seafile/seadroid2/framework/datastore/DataStoreKeys.java
++++ b/app/src/main/java/com/seafile/seadroid2/framework/datastore/DataStoreKeys.java
+@@ -37,6 +37,22 @@ public class DataStoreKeys {
+ 
+     public static final String KEY_SERVER_CERT_INFO = "key_server_cert_info";
+ 
++    /**
++     * Per-account client certificate (mTLS) binding, keyed by the account signature so two
++     * accounts on the same server can use different client certificates. The cert can come
++     * from two sources, selected by KEY_CLIENT_CERT_TYPE ("keychain" or "p12"):
++     *  - keychain: an alias picked from the Android system KeyChain (KEY_CLIENT_CERT_ALIAS).
++     *  - p12: an imported .p12/.pfx file copied into app storage (KEY_CLIENT_CERT_P12_PATH),
++     *    with its password stored encrypted (KEY_CLIENT_CERT_P12_PWD + _IV).
++     * KEY_CLIENT_CERT_NAME is a human-readable label for the UI.
++     */
++    public static final String KEY_CLIENT_CERT_TYPE = "key_client_cert_type";
++    public static final String KEY_CLIENT_CERT_ALIAS = "key_client_cert_alias";
++    public static final String KEY_CLIENT_CERT_P12_PATH = "key_client_cert_p12_path";
++    public static final String KEY_CLIENT_CERT_P12_PWD = "key_client_cert_p12_pwd";
++    public static final String KEY_CLIENT_CERT_P12_IV = "key_client_cert_p12_iv";
++    public static final String KEY_CLIENT_CERT_NAME = "key_client_cert_name";
++
+     public static final String KEY_GLOBAL_NAV_CONTEXT_STACK = "key_nav_context_stack";
+     public static final String KEY_NAV_CONTEXT_STACK_OF_SHARE_TO_SEAFILE = "key_nav_context_stack_of_share_to_seafile";
+     /**
+diff --git a/app/src/main/java/com/seafile/seadroid2/framework/http/UnsafeOkHttpClient.java b/app/src/main/java/com/seafile/seadroid2/framework/http/UnsafeOkHttpClient.java
+index 02dd6821..952856e7 100644
+--- a/app/src/main/java/com/seafile/seadroid2/framework/http/UnsafeOkHttpClient.java
++++ b/app/src/main/java/com/seafile/seadroid2/framework/http/UnsafeOkHttpClient.java
+@@ -2,7 +2,10 @@
+ package com.seafile.seadroid2.framework.http;
+ 
+ import com.blankj.utilcode.util.CollectionUtils;
++import com.seafile.seadroid2.SeadroidApplication;
+ import com.seafile.seadroid2.account.Account;
++import com.seafile.seadroid2.account.SupportAccountManager;
++import com.seafile.seadroid2.ssl.ClientCertKeyManager;
+ 
+ import java.security.cert.CertificateException;
+ import java.security.cert.X509Certificate;
+@@ -12,6 +15,7 @@ import java.util.List;
+ import java.util.concurrent.TimeUnit;
+ 
+ import javax.net.ssl.HostnameVerifier;
++import javax.net.ssl.KeyManager;
+ import javax.net.ssl.SSLContext;
+ import javax.net.ssl.SSLSession;
+ import javax.net.ssl.SSLSocketFactory;
+@@ -53,6 +57,19 @@ public class UnsafeOkHttpClient extends BaseOkHttpClient {
+     }
+     };
+ 
++    /**
++     * Client certificate (mTLS) key managers. The alias is resolved per-handshake from
++     * the bound account, or - when this client has no account (e.g. the shared Glide
++     * pipeline) - from whichever account is currently logged in. Returns {@code null}
++     * when no client certificate is configured, leaving an ordinary TLS connection.
++     */
++    private KeyManager[] getKeyManagers() {
++        return new KeyManager[]{new ClientCertKeyManager(SeadroidApplication.getAppContext(),
++                () -> specialAccount != null
++                        ? specialAccount
++                        : SupportAccountManager.getInstance().getCurrentAccount())};
++    }
++
+     public OkHttpClient.Builder getBuilder() {
+         OkHttpClient.Builder builder = new OkHttpClient.Builder();
+ 
+@@ -60,7 +77,7 @@ public class UnsafeOkHttpClient extends BaseOkHttpClient {
+         try {
+             // Install the all-trusting trust manager
+             final SSLContext sslContext = SSLContext.getInstance("TLS");
+-            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
++            sslContext.init(getKeyManagers(), trustAllCerts, new java.security.SecureRandom());
+             // Create an ssl socket factory with our all-trusting manager
+             final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+ 
+diff --git a/app/src/main/java/com/seafile/seadroid2/provider/SeafileProvider.java b/app/src/main/java/com/seafile/seadroid2/provider/SeafileProvider.java
+index 99be9129..69766efa 100644
+--- a/app/src/main/java/com/seafile/seadroid2/provider/SeafileProvider.java
++++ b/app/src/main/java/com/seafile/seadroid2/provider/SeafileProvider.java
+@@ -46,7 +46,9 @@ import com.seafile.seadroid2.BuildConfig;
+ import com.seafile.seadroid2.R;
+ import com.seafile.seadroid2.SeadroidApplication;
+ import com.seafile.seadroid2.account.Account;
++import com.seafile.seadroid2.account.AccountInfo;
+ import com.seafile.seadroid2.account.SupportAccountManager;
++import com.seafile.seadroid2.ui.account.AccountService;
+ import com.seafile.seadroid2.config.RepoType;
+ import com.seafile.seadroid2.framework.datastore.DataManager;
+ import com.seafile.seadroid2.framework.db.AppDatabase;
+@@ -72,6 +74,8 @@ import java.io.FileInputStream;
+ import java.io.FileNotFoundException;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
++
++import retrofit2.Response;
+ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.util.ArrayList;
+@@ -866,7 +870,43 @@ public class SeafileProvider extends DocumentsProvider {
+         row.add(Root.COLUMN_ICON, R.mipmap.ic_launcher);
+         row.add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD | Root.FLAG_SUPPORTS_CREATE);
+         row.add(Root.COLUMN_TITLE, account.getServerHost());
+-        row.add(Root.COLUMN_SUMMARY, account.getEmail());
++        row.add(Root.COLUMN_SUMMARY, resolveAccountSummaryEmail(account));
++    }
++
++    private String resolveAccountSummaryEmail(Account account) {
++        String contactEmail = account.getContactEmail();
++        if (!TextUtils.isEmpty(contactEmail)) {
++            return contactEmail;
++        }
++
++        String email = account.getEmail();
++        if (!TextUtils.isEmpty(email) && email.endsWith("@auth.local")) {
++            String fetchedContactEmail = fetchAndCacheContactEmail(account);
++            if (!TextUtils.isEmpty(fetchedContactEmail)) {
++                return fetchedContactEmail;
++            }
++        }
++
++        return email;
++    }
++
++    private String fetchAndCacheContactEmail(Account account) {
++        try {
++            Response<AccountInfo> response = HttpManager.getHttpWithAccount(account)
++                    .execute(AccountService.class)
++                    .getAccountInfoCall()
++                    .execute();
++            if (response.isSuccessful() && response.body() != null) {
++                String contactEmail = response.body().getContactEmail();
++                if (!TextUtils.isEmpty(contactEmail)) {
++                    SupportAccountManager.getInstance().setContactEmail(account, contactEmail);
++                    return contactEmail;
++                }
++            }
++        } catch (IOException e) {
++            SLogs.e(e);
++        }
++        return null;
+     }
+ 
+     /**
+diff --git a/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertKeyManager.java b/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertKeyManager.java
+new file mode 100644
+index 00000000..5130230f
+--- /dev/null
++++ b/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertKeyManager.java
+@@ -0,0 +1,228 @@
++package com.seafile.seadroid2.ssl;
++
++import android.content.Context;
++import android.security.KeyChain;
++import android.security.KeyChainException;
++import android.text.TextUtils;
++
++import com.seafile.seadroid2.account.Account;
++import com.seafile.seadroid2.framework.util.SafeLogs;
++
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.InputStream;
++import java.net.Socket;
++import java.security.KeyStore;
++import java.security.Principal;
++import java.security.PrivateKey;
++import java.security.cert.X509Certificate;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++
++import javax.net.ssl.KeyManager;
++import javax.net.ssl.KeyManagerFactory;
++import javax.net.ssl.X509KeyManager;
++
++/**
++ * An {@link X509KeyManager} that presents an account's client certificate (mTLS) during the
++ * TLS handshake, supporting both binding sources handled by {@link ClientCertManager}:
++ * <ul>
++ *   <li><b>KeyChain</b> — resolved via the Android system keystore; the private key never
++ *       leaves the OS.</li>
++ *   <li><b>P12</b> — an imported file, loaded into an in-memory {@link KeyManagerFactory}
++ *       whose result is cached.</li>
++ * </ul>
++ * The account (and therefore its binding) is resolved <b>per handshake</b> through an
++ * {@link AccountProvider}, never baked in. This is deliberate: the resulting socket factory
++ * is cached (in {@link SSLTrustManager}) and the OkHttpClient built from it is cached again
++ * one layer up, so a baked-in cert could be presented stale until an app restart. Resolving
++ * lazily means a cached factory always presents the account's current certificate.
++ * <p>
++ * If no certificate is bound, {@link #chooseClientAlias} returns {@code null} and no client
++ * cert is sent — an ordinary one-way TLS connection.
++ * <p>
++ * The KeyChain / file calls are blocking; they only ever run here on the connection threads
++ * driving the handshake, never the main thread.
++ */
++public class ClientCertKeyManager implements X509KeyManager {
++    private static final String DEBUG_TAG = "ClientCertKeyManager";
++
++    public interface AccountProvider {
++        Account get();
++    }
++
++    private final Context context;
++    private final AccountProvider accountProvider;
++
++    // KeyChain caches, keyed by keychain alias
++    private final Map<String, X509Certificate[]> kcChainCache = new ConcurrentHashMap<>();
++    private final Map<String, PrivateKey> kcKeyCache = new ConcurrentHashMap<>();
++    // p12 delegate cache, keyed by file path + last-modified
++    private final Map<String, X509KeyManager> p12Cache = new ConcurrentHashMap<>();
++
++    public ClientCertKeyManager(Context context, AccountProvider accountProvider) {
++        this.context = context.getApplicationContext();
++        this.accountProvider = accountProvider;
++    }
++
++    private Account account() {
++        return accountProvider == null ? null : accountProvider.get();
++    }
++
++    /**
++     * Resolve the binding for the current account, falling back to a <b>host-scoped</b> binding
++     * when the account has none of its own. The fallback is what makes a cert picked during SSO
++     * login (which is stored against the host, since no account exists yet) keep being presented
++     * by the resulting account afterwards, and by the pre-flight calls during login.
++     */
++    private ClientCertManager.ClientCertBinding resolveBinding(Account account) {
++        if (account == null) {
++            return null;
++        }
++        ClientCertManager mgr = ClientCertManager.instance();
++        ClientCertManager.ClientCertBinding b = mgr.getBinding(account);
++        if (b != null) {
++            return b;
++        }
++        String host = account.getServerHost();
++        return TextUtils.isEmpty(host) ? null : mgr.getBindingForHost(host);
++    }
++
++    @Override
++    public String chooseClientAlias(String[] keyType, Principal[] issuers, Socket socket) {
++        ClientCertManager.ClientCertBinding b = resolveBinding(account());
++        if (b == null) {
++            return null;
++        }
++        if (b.type == ClientCertManager.Type.KEYCHAIN) {
++            return TextUtils.isEmpty(b.alias) ? null : b.alias;
++        }
++        X509KeyManager km = p12Delegate(b);
++        return km == null ? null : km.chooseClientAlias(keyType, issuers, socket);
++    }
++
++    @Override
++    public String[] getClientAliases(String keyType, Principal[] issuers) {
++        String alias = chooseClientAlias(new String[]{keyType}, issuers, null);
++        return alias == null ? new String[0] : new String[]{alias};
++    }
++
++    @Override
++    public X509Certificate[] getCertificateChain(String alias) {
++        ClientCertManager.ClientCertBinding b = resolveBinding(account());
++        if (b == null) {
++            return null;
++        }
++        if (b.type == ClientCertManager.Type.KEYCHAIN) {
++            return keychainChain(b.alias);
++        }
++        X509KeyManager km = p12Delegate(b);
++        return km == null ? null : km.getCertificateChain(alias);
++    }
++
++    @Override
++    public PrivateKey getPrivateKey(String alias) {
++        ClientCertManager.ClientCertBinding b = resolveBinding(account());
++        if (b == null) {
++            return null;
++        }
++        if (b.type == ClientCertManager.Type.KEYCHAIN) {
++            return keychainKey(b.alias);
++        }
++        X509KeyManager km = p12Delegate(b);
++        return km == null ? null : km.getPrivateKey(alias);
++    }
++
++    // ---- KeyChain ----
++
++    private X509Certificate[] keychainChain(String alias) {
++        if (TextUtils.isEmpty(alias)) {
++            return null;
++        }
++        X509Certificate[] cached = kcChainCache.get(alias);
++        if (cached != null) {
++            return cached;
++        }
++        try {
++            X509Certificate[] chain = KeyChain.getCertificateChain(context, alias);
++            if (chain != null) {
++                kcChainCache.put(alias, chain);
++            }
++            return chain;
++        } catch (KeyChainException | InterruptedException e) {
++            SafeLogs.e(DEBUG_TAG + ": keychain chain load failed for " + alias + ", " + e.getMessage());
++            return null;
++        }
++    }
++
++    private PrivateKey keychainKey(String alias) {
++        if (TextUtils.isEmpty(alias)) {
++            return null;
++        }
++        PrivateKey cached = kcKeyCache.get(alias);
++        if (cached != null) {
++            return cached;
++        }
++        try {
++            PrivateKey key = KeyChain.getPrivateKey(context, alias);
++            if (key != null) {
++                kcKeyCache.put(alias, key);
++            }
++            return key;
++        } catch (KeyChainException | InterruptedException e) {
++            SafeLogs.e(DEBUG_TAG + ": keychain key load failed for " + alias + ", " + e.getMessage());
++            return null;
++        }
++    }
++
++    // ---- P12 ----
++
++    private X509KeyManager p12Delegate(ClientCertManager.ClientCertBinding b) {
++        if (b == null || TextUtils.isEmpty(b.p12Path)) {
++            return null;
++        }
++        File f = new File(b.p12Path);
++        if (!f.exists()) {
++            return null;
++        }
++        String cacheKey = b.p12Path + "|" + f.lastModified();
++        X509KeyManager cached = p12Cache.get(cacheKey);
++        if (cached != null) {
++            return cached;
++        }
++        try {
++            // resolve the password against the binding's own scope (account or host), not the
++            // account — a host-scoped fallback binding stores its password under the host key
++            String pwd = ClientCertManager.instance().getP12PasswordForScope(b.scopeId);
++            char[] pc = pwd == null ? new char[0] : pwd.toCharArray();
++
++            KeyStore ks = KeyStore.getInstance("PKCS12");
++            try (InputStream in = new FileInputStream(f)) {
++                ks.load(in, pc);
++            }
++            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
++            kmf.init(ks, pc);
++            for (KeyManager km : kmf.getKeyManagers()) {
++                if (km instanceof X509KeyManager) {
++                    p12Cache.put(cacheKey, (X509KeyManager) km);
++                    return (X509KeyManager) km;
++                }
++            }
++        } catch (Exception e) {
++            SafeLogs.e(DEBUG_TAG + ": p12 load failed for " + b.p12Path + ", " + e.getMessage());
++        }
++        return null;
++    }
++
++    // ---- server-side, unused on a client ----
++
++    @Override
++    public String chooseServerAlias(String keyType, Principal[] issuers, Socket socket) {
++        return null;
++    }
++
++    @Override
++    public String[] getServerAliases(String keyType, Principal[] issuers) {
++        return null;
++    }
++}
+diff --git a/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertManager.java b/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertManager.java
+new file mode 100644
+index 00000000..73b0e74d
+--- /dev/null
++++ b/app/src/main/java/com/seafile/seadroid2/ssl/ClientCertManager.java
+@@ -0,0 +1,366 @@
++package com.seafile.seadroid2.ssl;
++
++import android.content.SharedPreferences;
++import android.text.TextUtils;
++import android.util.Pair;
++
++import com.blankj.utilcode.util.EncryptUtils;
++import com.seafile.seadroid2.SeadroidApplication;
++import com.seafile.seadroid2.account.Account;
++import com.seafile.seadroid2.framework.crypto.SecurePasswordManager;
++import com.seafile.seadroid2.framework.datastore.DataStoreKeys;
++import com.seafile.seadroid2.framework.util.SafeLogs;
++import com.seafile.seadroid2.preferences.Settings;
++
++import java.io.ByteArrayInputStream;
++import java.io.File;
++import java.io.FileOutputStream;
++import java.security.KeyStore;
++import java.util.Enumeration;
++import java.util.Locale;
++
++/**
++ * Stores, per account, the client certificate (mTLS) the user picked. The binding is keyed
++ * by the account signature (server + email), so it is truly per-account.
++ * <p>
++ * Two sources are supported:
++ * <ul>
++ *   <li><b>KeyChain</b> — an alias of a credential installed in the Android system KeyChain.
++ *       Only the alias is stored; the private key stays in the OS keystore.</li>
++ *   <li><b>P12</b> — an imported {@code .p12}/{@code .pfx} file, copied into app-private
++ *       storage. Its password is stored encrypted via {@link SecurePasswordManager}
++ *       (Android-Keystore-backed).</li>
++ * </ul>
++ * The actual key material is resolved on demand by {@link ClientCertKeyManager}.
++ * <p>
++ * Bindings live in one of two <i>scopes</i>:
++ * <ul>
++ *   <li><b>account scope</b> — keyed by the account signature (server + email); set from
++ *       {@code AccountDetailActivity} and used by a fully-formed account.</li>
++ *   <li><b>host scope</b> — keyed by the server host alone, with no email. This is what the
++ *       SSO login flow uses: at that point no account exists yet (the WebView and the
++ *       pre-flight calls only know the server), and a client cert that gates the perimeter is
++ *       a property of the host, not of any one user. {@link ClientCertKeyManager} falls back to
++ *       the host binding when an account has none of its own, so the same cert keeps being
++ *       presented once the SSO login resolves into a real account.</li>
++ * </ul>
++ */
++public final class ClientCertManager {
++
++    private static final String DEBUG_TAG = "ClientCertManager";
++    private static final String TYPE_KEYCHAIN = "keychain";
++    private static final String TYPE_P12 = "p12";
++    private static final String P12_DIR = "client_certs";
++
++    public enum Type {KEYCHAIN, P12}
++
++    public enum ImportResult {SUCCESS, WRONG_PASSWORD, INVALID}
++
++    /** A resolved description of an account's client cert. Never carries the p12 password. */
++    public static final class ClientCertBinding {
++        public Type type;
++        public String alias;        // KEYCHAIN
++        public String p12Path;      // P12
++        public String displayName;  // for UI
++        public String scopeId;      // the storage scope this was read from (account or host)
++    }
++
++    private static ClientCertManager instance;
++
++    public static synchronized ClientCertManager instance() {
++        if (instance == null) {
++            instance = new ClientCertManager();
++        }
++        return instance;
++    }
++
++    private static SharedPreferences prefs() {
++        return Settings.getCommonPreferences();
++    }
++
++    private static String key(String base, String scopeId) {
++        return base + "_" + scopeId;
++    }
++
++    private static File p12File(String scopeId) {
++        File dir = new File(SeadroidApplication.getAppContext().getFilesDir(), P12_DIR);
++        return new File(dir, scopeId + ".p12");
++    }
++
++    /** Storage scope for a fully-formed account: keyed by its signature (server + email). */
++    private static String accountScope(Account account) {
++        return account.getEncryptSignature();
++    }
++
++    /**
++     * Storage scope for a bare host (no email). Accepts either a full server URL
++     * ({@code https://host:port/}) or an already-stripped {@code host:port}, and normalizes
++     * both to the same key so a cert picked during SSO is found again by the resulting account.
++     */
++    private static String hostScope(String serverOrHost) {
++        return "host_" + EncryptUtils.encryptMD5ToString(normalizeHost(serverOrHost));
++    }
++
++    private static String normalizeHost(String serverOrHost) {
++        if (serverOrHost == null) {
++            return "";
++        }
++        String s = serverOrHost.trim();
++        int scheme = s.indexOf("://");
++        if (scheme != -1) {
++            s = s.substring(scheme + 3);
++        }
++        int slash = s.indexOf('/');
++        if (slash != -1) {
++            s = s.substring(0, slash);
++        }
++        return s.toLowerCase(Locale.ROOT);
++    }
++
++    // ---- read ----
++
++    public ClientCertBinding getBinding(Account account) {
++        return account == null ? null : getBindingForScope(accountScope(account));
++    }
++
++    /** Host-scoped binding, used by the SSO flow before any account exists. */
++    public ClientCertBinding getBindingForHost(String serverOrHost) {
++        if (TextUtils.isEmpty(serverOrHost)) {
++            return null;
++        }
++        return getBindingForScope(hostScope(serverOrHost));
++    }
++
++    private ClientCertBinding getBindingForScope(String scopeId) {
++        String type = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_TYPE, scopeId), null);
++
++        // legacy bindings (pre-p12) stored only the bare alias with no type
++        if (type == null) {
++            String alias = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_ALIAS, scopeId), null);
++            return TextUtils.isEmpty(alias) ? null : keychainBinding(alias, scopeId);
++        }
++
++        if (TYPE_KEYCHAIN.equals(type)) {
++            String alias = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_ALIAS, scopeId), null);
++            return TextUtils.isEmpty(alias) ? null : keychainBinding(alias, scopeId);
++        }
++
++        if (TYPE_P12.equals(type)) {
++            String path = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PATH, scopeId), null);
++            if (TextUtils.isEmpty(path) || !new File(path).exists()) {
++                return null;
++            }
++            ClientCertBinding b = new ClientCertBinding();
++            b.type = Type.P12;
++            b.p12Path = path;
++            b.displayName = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_NAME, scopeId), "client.p12");
++            b.scopeId = scopeId;
++            return b;
++        }
++
++        return null;
++    }
++
++    private ClientCertBinding keychainBinding(String alias, String scopeId) {
++        ClientCertBinding b = new ClientCertBinding();
++        b.type = Type.KEYCHAIN;
++        b.alias = alias;
++        b.displayName = alias;
++        b.scopeId = scopeId;
++        return b;
++    }
++
++    public String getDisplayName(Account account) {
++        ClientCertBinding b = getBinding(account);
++        return b == null ? null : b.displayName;
++    }
++
++    public String getDisplayNameForHost(String serverOrHost) {
++        ClientCertBinding b = getBindingForHost(serverOrHost);
++        return b == null ? null : b.displayName;
++    }
++
++    public boolean hasClientCert(Account account) {
++        return getBinding(account) != null;
++    }
++
++    /** Decrypts and returns the imported p12 password; "" if none. Resolved lazily, not in getBinding(). */
++    public String getP12Password(Account account) {
++        return account == null ? "" : getP12PasswordForScope(accountScope(account));
++    }
++
++    /** Decrypts the imported p12 password for a binding's own scope (account or host). */
++    public String getP12PasswordForScope(String scopeId) {
++        if (TextUtils.isEmpty(scopeId)) {
++            return "";
++        }
++        String enc = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PWD, scopeId), null);
++        String iv = prefs().getString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_IV, scopeId), null);
++        if (TextUtils.isEmpty(enc) || TextUtils.isEmpty(iv)) {
++            return "";
++        }
++        String pwd = SecurePasswordManager.decryptPassword(enc, iv);
++        return pwd == null ? "" : pwd;
++    }
++
++    // ---- write ----
++
++    public void saveKeyChainAlias(Account account, String alias) {
++        if (account == null) {
++            return;
++        }
++        if (TextUtils.isEmpty(alias)) {
++            deleteBinding(account);
++            return;
++        }
++        saveKeyChainAliasForScope(accountScope(account), alias);
++        SSLTrustManager.instance().invalidate(account);
++    }
++
++    /** Host-scoped variant for the SSO flow; no account to invalidate. */
++    public void saveKeyChainAliasForHost(String serverOrHost, String alias) {
++        if (TextUtils.isEmpty(serverOrHost)) {
++            return;
++        }
++        if (TextUtils.isEmpty(alias)) {
++            deleteBindingForHost(serverOrHost);
++            return;
++        }
++        saveKeyChainAliasForScope(hostScope(serverOrHost), alias);
++    }
++
++    private void saveKeyChainAliasForScope(String scopeId, String alias) {
++        deleteP12File(scopeId);
++        prefs().edit()
++                .putString(key(DataStoreKeys.KEY_CLIENT_CERT_TYPE, scopeId), TYPE_KEYCHAIN)
++                .putString(key(DataStoreKeys.KEY_CLIENT_CERT_ALIAS, scopeId), alias)
++                .putString(key(DataStoreKeys.KEY_CLIENT_CERT_NAME, scopeId), alias)
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PATH, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PWD, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_IV, scopeId))
++                .apply();
++    }
++
++    /**
++     * Validate a .p12/.pfx without storing it (used to give the user immediate feedback on a
++     * wrong password). Returns SUCCESS only if it opens and contains at least one key entry.
++     */
++    public ImportResult validateP12(byte[] data, String password) {
++        if (data == null || data.length == 0) {
++            return ImportResult.INVALID;
++        }
++        char[] pc = password == null ? new char[0] : password.toCharArray();
++        try {
++            KeyStore ks = KeyStore.getInstance("PKCS12");
++            ks.load(new ByteArrayInputStream(data), pc);
++            Enumeration<String> aliases = ks.aliases();
++            while (aliases.hasMoreElements()) {
++                if (ks.isKeyEntry(aliases.nextElement())) {
++                    return ImportResult.SUCCESS;
++                }
++            }
++            return ImportResult.INVALID; // parsed, but no private-key entry
++        } catch (java.io.IOException e) {
++            // PKCS12 surfaces a wrong password as an IOException (bad MAC / decrypt failure)
++            return ImportResult.WRONG_PASSWORD;
++        } catch (Exception e) {
++            SafeLogs.e(DEBUG_TAG + ": p12 validate failed, " + e.getMessage());
++            return ImportResult.INVALID;
++        }
++    }
++
++    /** Validate, copy the .p12 into app storage, and store the (encrypted) password. */
++    public ImportResult importP12(Account account, byte[] data, String password, String displayName) {
++        if (account == null) {
++            return ImportResult.INVALID;
++        }
++        ImportResult r = importP12ForScope(accountScope(account), data, password, displayName);
++        if (r == ImportResult.SUCCESS) {
++            SSLTrustManager.instance().invalidate(account);
++        }
++        return r;
++    }
++
++    /** Host-scoped variant for the SSO flow; no account to invalidate. */
++    public ImportResult importP12ForHost(String serverOrHost, byte[] data, String password, String displayName) {
++        if (TextUtils.isEmpty(serverOrHost)) {
++            return ImportResult.INVALID;
++        }
++        return importP12ForScope(hostScope(serverOrHost), data, password, displayName);
++    }
++
++    private ImportResult importP12ForScope(String scopeId, byte[] data, String password, String displayName) {
++        ImportResult r = validateP12(data, password);
++        if (r != ImportResult.SUCCESS) {
++            return r;
++        }
++
++        try {
++            File out = p12File(scopeId);
++            File dir = out.getParentFile();
++            if (dir != null && !dir.exists() && !dir.mkdirs()) {
++                SafeLogs.e(DEBUG_TAG + ": could not create client cert dir");
++                return ImportResult.INVALID;
++            }
++            try (FileOutputStream fos = new FileOutputStream(out)) {
++                fos.write(data);
++            }
++
++            String pwdEnc = null, ivEnc = null;
++            Pair<String, String> enc = SecurePasswordManager.encryptPassword(password == null ? "" : password);
++            if (enc != null) {
++                pwdEnc = enc.first;
++                ivEnc = enc.second;
++            }
++
++            prefs().edit()
++                    .putString(key(DataStoreKeys.KEY_CLIENT_CERT_TYPE, scopeId), TYPE_P12)
++                    .putString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PATH, scopeId), out.getAbsolutePath())
++                    .putString(key(DataStoreKeys.KEY_CLIENT_CERT_NAME, scopeId),
++                            TextUtils.isEmpty(displayName) ? out.getName() : displayName)
++                    .putString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PWD, scopeId), pwdEnc)
++                    .putString(key(DataStoreKeys.KEY_CLIENT_CERT_P12_IV, scopeId), ivEnc)
++                    .remove(key(DataStoreKeys.KEY_CLIENT_CERT_ALIAS, scopeId))
++                    .apply();
++
++            return ImportResult.SUCCESS;
++        } catch (Exception e) {
++            SafeLogs.e(DEBUG_TAG + ": p12 import failed, " + e.getMessage());
++            return ImportResult.INVALID;
++        }
++    }
++
++    public void deleteBinding(Account account) {
++        if (account == null) {
++            return;
++        }
++        deleteBindingForScope(accountScope(account));
++        SSLTrustManager.instance().invalidate(account);
++    }
++
++    public void deleteBindingForHost(String serverOrHost) {
++        if (TextUtils.isEmpty(serverOrHost)) {
++            return;
++        }
++        deleteBindingForScope(hostScope(serverOrHost));
++    }
++
++    private void deleteBindingForScope(String scopeId) {
++        deleteP12File(scopeId);
++        prefs().edit()
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_TYPE, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_ALIAS, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PATH, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_PWD, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_P12_IV, scopeId))
++                .remove(key(DataStoreKeys.KEY_CLIENT_CERT_NAME, scopeId))
++                .apply();
++    }
++
++    private void deleteP12File(String scopeId) {
++        File f = p12File(scopeId);
++        if (f.exists() && !f.delete()) {
++            SafeLogs.e(DEBUG_TAG + ": could not delete old p12 " + f.getAbsolutePath());
++        }
++    }
++}
+diff --git a/app/src/main/java/com/seafile/seadroid2/ssl/SSLTrustManager.java b/app/src/main/java/com/seafile/seadroid2/ssl/SSLTrustManager.java
+index 904d4f8c..3da25285 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ssl/SSLTrustManager.java
++++ b/app/src/main/java/com/seafile/seadroid2/ssl/SSLTrustManager.java
+@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.Lists;
+ import com.google.common.collect.Maps;
+ import com.google.common.collect.Sets;
++import com.seafile.seadroid2.SeadroidApplication;
+ import com.seafile.seadroid2.account.Account;
+ 
+ import java.security.KeyStore;
+@@ -21,6 +22,7 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ 
++import javax.net.ssl.KeyManager;
+ import javax.net.ssl.SSLSocketFactory;
+ import javax.net.ssl.TrustManager;
+ import javax.net.ssl.TrustManagerFactory;
+@@ -85,6 +87,27 @@ public final class SSLTrustManager {
+         return new TrustManager[]{mgr};
+     }
+ 
++    /**
++     * Build the client-side {@link KeyManager}s for mutual TLS (mTLS).
++     * <p>
++     * The alias is resolved <b>per handshake</b> (via {@link ClientCertManager}) rather than
++     * baked into the returned KeyManager. This matters because the resulting socket factory
++     * is cached (here, keyed by the mutable {@link Account}) and the {@code OkHttpClient}
++     * built from it is cached again one layer up in {@code HttpManager}. With a fixed alias,
++     * a factory built before the user picked/changed the cert could be reused and silently
++     * present the wrong (or no) certificate until the app was restarted. Resolving the alias
++     * lazily means even a cached factory always presents the account's current certificate.
++     * <p>
++     * If no certificate is bound, the alias resolves to {@code null} and no client cert is
++     * sent - an ordinary one-way TLS connection. The lookup keys off the account signature
++     * (server + email), which is stable even as {@code token}/{@code name} change during login.
++     */
++    public KeyManager[] getKeyManagers(Account account) {
++        return new KeyManager[]{
++                new ClientCertKeyManager(SeadroidApplication.getAppContext(), () -> account)
++        };
++    }
++
+     public synchronized SSLSocketFactory getSSLSocketFactory(Account account) {
+         SSLSocketFactory factory = cachedFactories.get(account);
+ 
+@@ -94,7 +117,8 @@ public final class SSLTrustManager {
+ 
+         try {
+             TrustManager[] mgrs = getTrustManagers(account);
+-            factory = new SSLSeafileSocketFactory(null, mgrs, new SecureRandom());
++            KeyManager[] keyManagers = getKeyManagers(account);
++            factory = new SSLSeafileSocketFactory(keyManagers, mgrs, new SecureRandom());
+             Log.d(DEBUG_TAG, "a SSLSocketFactory is created:" + factory);
+         } catch (Exception e) {
+             Log.e(DEBUG_TAG, "error when create SSLSocketFactory", e);
+@@ -107,6 +131,20 @@ public final class SSLTrustManager {
+         return factory;
+     }
+ 
++    /**
++     * Drop any cached trust manager / socket factory for this account, so the next
++     * request rebuilds them. Call this after the account's client certificate binding
++     * changes, otherwise a stale factory (built with the old, or no, client cert) would
++     * keep being reused.
++     */
++    public synchronized void invalidate(Account account) {
++        if (account == null) {
++            return;
++        }
++        cachedFactories.remove(account);
++        managers.remove(account);
++    }
++
+     public List<X509Certificate> getCertsChainForAccount(Account account) {
+         SecureX509TrustManager mgr = managers.get(account);
+         if (mgr == null) {
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/account/AccountDetailActivity.java b/app/src/main/java/com/seafile/seadroid2/ui/account/AccountDetailActivity.java
+index e170f79e..c5640ba6 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/account/AccountDetailActivity.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/account/AccountDetailActivity.java
+@@ -2,7 +2,9 @@ package com.seafile.seadroid2.ui.account;
+ 
+ import android.content.Context;
+ import android.content.Intent;
++import android.net.Uri;
+ import android.os.Bundle;
++import android.security.KeyChain;
+ import android.text.Editable;
+ import android.text.TextUtils;
+ import android.text.TextWatcher;
+@@ -11,24 +13,33 @@ import android.util.Pair;
+ import android.view.MenuItem;
+ import android.view.View;
+ import android.view.inputmethod.InputMethodManager;
++import android.widget.Button;
+ import android.widget.CompoundButton;
+ import android.widget.EditText;
+ 
++import androidx.activity.result.ActivityResultLauncher;
++import androidx.activity.result.contract.ActivityResultContracts;
++import androidx.appcompat.app.AlertDialog;
+ import androidx.appcompat.widget.Toolbar;
+ import androidx.core.app.NavUtils;
+ import androidx.core.app.TaskStackBuilder;
+ import androidx.lifecycle.Observer;
+ 
+ import com.blankj.utilcode.util.NetworkUtils;
++import com.blankj.utilcode.util.ToastUtils;
++import com.google.android.material.dialog.MaterialAlertDialogBuilder;
++import com.google.android.material.textfield.TextInputLayout;
+ import com.seafile.seadroid2.R;
+ import com.seafile.seadroid2.SeafException;
+ import com.seafile.seadroid2.account.Account;
+ import com.seafile.seadroid2.account.Authenticator;
+ import com.seafile.seadroid2.config.Constants;
+ import com.seafile.seadroid2.databinding.AccountDetailBinding;
++import com.seafile.seadroid2.framework.util.ContentResolvers;
+ import com.seafile.seadroid2.framework.util.SLogs;
+ import com.seafile.seadroid2.framework.util.Utils;
+ import com.seafile.seadroid2.ssl.CertsManager;
++import com.seafile.seadroid2.ssl.ClientCertManager;
+ import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
+ import com.seafile.seadroid2.ui.dialog.SslConfirmDialog;
+ 
+@@ -46,6 +57,25 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+     private boolean serverTextHasFocus;
+     private String mSessionKey;
+ 
++    /**
++     * The client certificate (mTLS) selection made on this screen, if any. Held here while
++     * the form is being filled and persisted in {@link #login()} just before the account is
++     * used, so it is bound to the right account signature. {@code null} means "no change" -
++     * any previously stored binding is left as-is.
++     */
++    private PendingCert pendingCert;
++    private ActivityResultLauncher<String[]> p12PickerLauncher;
++
++    /** A not-yet-persisted client cert choice (KeyChain alias, imported .p12, or removal). */
++    private static class PendingCert {
++        boolean cleared;                  // user tapped "Remove"
++        ClientCertManager.Type type;      // otherwise KEYCHAIN or P12
++        String alias;                     // KEYCHAIN
++        byte[] p12Data;                   // P12 (already validated against p12Password)
++        String p12Password;               // P12
++        String displayName;
++    }
++
+     /**
+      * Called when the activity is first created.
+      */
+@@ -75,6 +105,7 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+         binding.loginButton.setOnClickListener(v -> login());
+ 
+         setupServerText();
++        setupClientCert();
+ 
+         Intent intent = getIntent();
+ 
+@@ -100,6 +131,9 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+             binding.emailAddress.setText(email);
+             binding.emailAddress.requestFocus();
+ 
++            // show any client certificate already bound to this account
++            updateClientCertStatus();
++
+             binding.seahubUrlHint.setVisibility(View.GONE);
+         } else if (defaultServerUri != null) {
+             if (defaultServerUri.startsWith(Constants.Protocol.HTTPS)) {
+@@ -256,15 +290,15 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+         retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, getIntent().getStringExtra(Constants.AccountKeys.ARG_ACCOUNT_TYPE));
+ 
+         //extra params
+-        retData.putExtra(Constants.AccountKeys.ARG_AVATAR_URL, loginAccount.getAvatarUrl());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_TOTAL, loginAccount.getTotalSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_USAGE, loginAccount.getUsageSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_EMAIL, loginAccount.getEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_CONTACT_EMAIL, loginAccount.getContactEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_NAME, loginAccount.getName());
+-        retData.putExtra(Constants.AccountKeys.ARG_AUTH_SESSION_KEY, loginAccount.getSessionKey());
+-        retData.putExtra(Constants.AccountKeys.ARG_SERVER_URI, loginAccount.getServer());
+-        retData.putExtra(Constants.AccountKeys.ARG_SHIB, false);
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_AVATAR_URL, loginAccount.getAvatarUrl());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SPACE_TOTAL, loginAccount.getTotalSpace());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SPACE_USAGE, loginAccount.getUsageSpace());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_EMAIL, loginAccount.getEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_CONTACT_EMAIL, loginAccount.getContactEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_NAME, loginAccount.getName());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_AUTH_SESSION_KEY, loginAccount.getSessionKey());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SERVER_URI, loginAccount.getServer());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SHIB, false);
+         retData.putExtra(TWO_FACTOR_AUTH, binding.rememberDevice.isChecked());
+         setResult(RESULT_OK, retData);
+         finish();
+@@ -352,6 +386,177 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+     }
+ 
+ 
++    private void setupClientCert() {
++        p12PickerLauncher = registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
++            if (uri != null) {
++                onP12Picked(uri);
++            }
++        });
++
++        binding.clientCertButton.setOnClickListener(v -> showCertSourceChooser());
++        binding.clientCertClear.setOnClickListener(v -> {
++            PendingCert p = new PendingCert();
++            p.cleared = true;
++            pendingCert = p;
++            updateClientCertStatus();
++        });
++        updateClientCertStatus();
++    }
++
++    /** Lets the user choose where the client certificate comes from: KeyChain or a .p12 file. */
++    private void showCertSourceChooser() {
++        CharSequence[] items = {
++                getString(R.string.client_cert_source_keychain),
++                getString(R.string.client_cert_source_p12)
++        };
++        new MaterialAlertDialogBuilder(this)
++                .setTitle(R.string.client_cert_choose)
++                .setItems(items, (dialog, which) -> {
++                    if (which == 0) {
++                        chooseFromKeyChain();
++                    } else {
++                        p12PickerLauncher.launch(new String[]{
++                                "application/x-pkcs12", "application/pkcs12",
++                                "application/octet-stream", "*/*"});
++                    }
++                })
++                .show();
++    }
++
++    /**
++     * Opens the Android system credential picker (KeyChain). The private key stays in the OS
++     * keystore; we only remember the chosen alias.
++     */
++    private void chooseFromKeyChain() {
++        String host = null;
++        int port = -1;
++        String serverURL = binding.serverUrl.getText().toString().trim();
++        try {
++            if (!TextUtils.isEmpty(serverURL)) {
++                URI uri = new URI(serverURL);
++                host = uri.getHost();
++                port = uri.getPort();
++            }
++        } catch (URISyntaxException ignored) {
++        }
++
++        KeyChain.choosePrivateKeyAlias(this, alias -> runOnUiThread(() -> {
++            // alias is null when the user cancels; keep the previous selection in that case
++            if (alias != null) {
++                PendingCert p = new PendingCert();
++                p.type = ClientCertManager.Type.KEYCHAIN;
++                p.alias = alias;
++                p.displayName = alias;
++                pendingCert = p;
++                updateClientCertStatus();
++            }
++        }), new String[]{"RSA", "EC"}, null, host, port, null);
++    }
++
++    private void onP12Picked(Uri uri) {
++        byte[] data = ContentResolvers.getFileContentFromUri(getContentResolver(), uri);
++        if (data == null || data.length == 0) {
++            ToastUtils.showShort(R.string.client_cert_import_failed);
++            return;
++        }
++        String name = ContentResolvers.getFileNameFromUri(getContentResolver(), uri);
++        if (TextUtils.isEmpty(name)) {
++            name = "client.p12";
++        }
++        promptP12Password(data, name);
++    }
++
++    /** Asks for the .p12 password and validates it before accepting the import. */
++    private void promptP12Password(byte[] data, String displayName) {
++        View view = getLayoutInflater().inflate(R.layout.dialog_p12_password, null);
++        TextInputLayout layout = view.findViewById(R.id.p12_password_layout);
++        EditText input = view.findViewById(R.id.p12_password_input);
++
++        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
++                .setTitle(R.string.client_cert_p12_password_title)
++                .setMessage(displayName)
++                .setView(view)
++                .setNegativeButton(R.string.cancel, null)
++                .setPositiveButton(R.string.ok, null) // overridden below so a wrong password keeps the dialog open
++                .create();
++
++        dialog.setOnShowListener(d -> {
++            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
++            positive.setOnClickListener(v -> {
++                String pwd = input.getText().toString();
++                ClientCertManager.ImportResult r = ClientCertManager.instance().validateP12(data, pwd);
++                if (r == ClientCertManager.ImportResult.SUCCESS) {
++                    PendingCert p = new PendingCert();
++                    p.type = ClientCertManager.Type.P12;
++                    p.p12Data = data;
++                    p.p12Password = pwd;
++                    p.displayName = displayName;
++                    pendingCert = p;
++                    updateClientCertStatus();
++                    dialog.dismiss();
++                } else if (r == ClientCertManager.ImportResult.WRONG_PASSWORD) {
++                    layout.setError(getString(R.string.client_cert_p12_wrong_password));
++                } else {
++                    layout.setError(getString(R.string.client_cert_import_failed));
++                }
++            });
++        });
++        dialog.show();
++    }
++
++    private void updateClientCertStatus() {
++        String label = null;
++
++        if (pendingCert != null) {
++            // an unsaved choice was made on this screen
++            if (!pendingCert.cleared) {
++                label = pendingCert.displayName;
++            }
++        } else {
++            // no change this session: reflect what is already stored for this account
++            Account acc = currentFormAccount();
++            if (acc != null) {
++                label = ClientCertManager.instance().getDisplayName(acc);
++            }
++        }
++
++        if (TextUtils.isEmpty(label)) {
++            binding.clientCertStatus.setText(R.string.client_cert_none);
++            binding.clientCertClear.setVisibility(View.GONE);
++        } else {
++            binding.clientCertStatus.setText(getString(R.string.client_cert_selected, label));
++            binding.clientCertClear.setVisibility(View.VISIBLE);
++        }
++    }
++
++    /** A lightweight account built from the current form fields, for looking up its cert binding. */
++    private Account currentFormAccount() {
++        String server = binding.serverUrl.getText().toString().trim();
++        String email = binding.emailAddress.getText().toString().trim();
++        if (TextUtils.isEmpty(server) || TextUtils.isEmpty(email)) {
++            return null;
++        }
++        Account a = new Account();
++        a.server = server;
++        a.email = email;
++        return a;
++    }
++
++    /** Persists the pending client-cert choice (if any) against the given account. */
++    private void persistPendingCert(Account account) {
++        if (pendingCert == null) {
++            return;
++        }
++        ClientCertManager mgr = ClientCertManager.instance();
++        if (pendingCert.cleared) {
++            mgr.deleteBinding(account);
++        } else if (pendingCert.type == ClientCertManager.Type.KEYCHAIN) {
++            mgr.saveKeyChainAlias(account, pendingCert.alias);
++        } else if (pendingCert.type == ClientCertManager.Type.P12) {
++            mgr.importP12(account, pendingCert.p12Data, pendingCert.p12Password, pendingCert.displayName);
++        }
++    }
++
+     private void login() {
+         String serverURL = binding.serverUrl.getText().toString().trim();
+         String email = binding.emailAddress.getText().toString().trim();
+@@ -429,6 +634,11 @@ public class AccountDetailActivity extends BaseActivityWithVM<AccountViewModel>
+         tempAccount.is_shib = false;
+         tempAccount.setSessionKey(mSessionKey);
+         tempAccount.setLoginTimestamp(System.currentTimeMillis());
++
++        // bind (or clear) the chosen client certificate to this account before the login
++        // request is made, so the mTLS handshake during login already presents it
++        persistPendingCert(tempAccount);
++
+         getViewModel().login(tempAccount, passwd, authToken, rememberDevice);
+ 
+     }
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/account/AccountViewModel.java b/app/src/main/java/com/seafile/seadroid2/ui/account/AccountViewModel.java
+index 3b859997..eaadcd16 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/account/AccountViewModel.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/account/AccountViewModel.java
+@@ -23,6 +23,7 @@ import com.seafile.seadroid2.framework.util.ExceptionUtils;
+ import com.seafile.seadroid2.framework.util.SLogs;
+ import com.seafile.seadroid2.framework.util.Toasts;
+ import com.seafile.seadroid2.ssl.CertsManager;
++import com.seafile.seadroid2.ssl.ClientCertManager;
+ import com.seafile.seadroid2.ui.main.MainService;
+ 
+ import java.util.HashMap;
+@@ -92,7 +93,7 @@ public class AccountViewModel extends BaseViewModel {
+ 
+                 // Update the account info
+                 tempAccount.setName(accountInfo.getName());
+-                tempAccount.setEmail(accountInfo.getEmail());
++//                tempAccount.setEmail(accountInfo.getEmail());
+                 tempAccount.setContactEmail(accountInfo.getContactEmail());
+                 tempAccount.setAvatarUrl(accountInfo.getAvatarUrl());
+                 tempAccount.setTotalSpace(accountInfo.getTotal());
+@@ -235,6 +236,10 @@ public class AccountViewModel extends BaseViewModel {
+             CertsManager.instance().deleteCertForAccount(account);
+         }
+ 
++        // The account is being permanently removed, so drop its client-cert (mTLS) binding.
++        // Done here (not in logout) so a plain sign-out keeps the binding for re-login.
++        ClientCertManager.instance().deleteBinding(account);
++
+         //delete local account
+         SupportAccountManager.getInstance().removeAccount(account.getAndroidAccount(), null, null);
+ 
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/account/SeafileAuthenticatorActivity.java b/app/src/main/java/com/seafile/seadroid2/ui/account/SeafileAuthenticatorActivity.java
+index f3386282..4c9df544 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/account/SeafileAuthenticatorActivity.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/account/SeafileAuthenticatorActivity.java
+@@ -44,6 +44,21 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
+     public static final int SINGLE_SIGN_ON_LOGIN = 1;
+     public static final int OTHER_SERVER = 2;
+ 
++    public final static String ARG_ACCOUNT_TYPE = "ACCOUNT_TYPE";
++    public final static String ARG_ACCOUNT_NAME = "ACCOUNT_NAME";
++    public final static String ARG_SERVER_URI = "SERVER_URI";
++    public final static String ARG_EDIT_OLD_ACCOUNT_NAME = "EDIT_OLD_ACCOUNT";
++    public final static String ARG_EMAIL = "EMAIL";
++    public final static String ARG_CONTACT_EMAIL = "CONTACT_EMAIL";
++    public final static String ARG_AVATAR_URL = "AVATAR_URL";
++    public final static String ARG_SPACE_TOTAL = "SPACE_TOTAL";
++    public final static String ARG_SPACE_USAGE = "SPACE_USAGE";
++    public final static String ARG_NAME = "NAME";
++    public final static String ARG_SHIB = "SHIB";
++    public final static String ARG_LOGIN_TIME = "LOGIN_TIME";
++    public final static String ARG_AUTH_SESSION_KEY = "TWO_FACTOR_AUTH";
++    public final static String ARG_IS_EDITING = "isEdited";
++
+     private static final int REQ_SIGNUP = 1;
+     private static final String STATE_PENDING_FLOW = "pending_flow";
+     private static final int FLOW_NONE = 0;
+@@ -240,15 +255,15 @@ public class SeafileAuthenticatorActivity extends BaseAuthenticatorActivity {
+             return;
+         }
+ 
+-        String avatarUrl = intent.getStringExtra(Constants.AccountKeys.ARG_AVATAR_URL);
+-        String email = intent.getStringExtra(Constants.AccountKeys.ARG_EMAIL);
+-        String contactEmail = intent.getStringExtra(Constants.AccountKeys.ARG_CONTACT_EMAIL);
+-        String name = intent.getStringExtra(Constants.AccountKeys.ARG_NAME);
+-        String sessionKey = intent.getStringExtra(Constants.AccountKeys.ARG_AUTH_SESSION_KEY);
+-        String serverUri = intent.getStringExtra(Constants.AccountKeys.ARG_SERVER_URI);
+-        boolean shib = intent.getBooleanExtra(Constants.AccountKeys.ARG_SHIB, false);
+-        long totalSpace = intent.getLongExtra(Constants.AccountKeys.ARG_SPACE_TOTAL, 0L);
+-        long usageSpace = intent.getLongExtra(Constants.AccountKeys.ARG_SPACE_USAGE, 0L);
++        String avatarUrl = intent.getStringExtra(ARG_AVATAR_URL);
++        String email = intent.getStringExtra(ARG_EMAIL);
++        String contactEmail = intent.getStringExtra(ARG_CONTACT_EMAIL);
++        String name = intent.getStringExtra(ARG_NAME);
++        String sessionKey = intent.getStringExtra(ARG_AUTH_SESSION_KEY);
++        String serverUri = intent.getStringExtra(ARG_SERVER_URI);
++        boolean shib = intent.getBooleanExtra(ARG_SHIB, false);
++        long totalSpace = intent.getLongExtra(SeafileAuthenticatorActivity.ARG_SPACE_TOTAL, 0L);
++        long usageSpace = intent.getLongExtra(SeafileAuthenticatorActivity.ARG_SPACE_USAGE, 0L);
+ 
+         Bundle bundle = new Bundle();
+         bundle.putBoolean(Authenticator.KEY_SHIB, shib);
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnActivity.java b/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnActivity.java
+index 6bd4a6f2..281aa0c8 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnActivity.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnActivity.java
+@@ -8,33 +8,41 @@ import android.os.Build;
+ import android.os.Bundle;
+ import android.os.Handler;
+ import android.os.Looper;
++import android.security.KeyChain;
+ import android.text.Editable;
+ import android.text.TextUtils;
+ import android.util.Patterns;
+-import android.view.MenuItem;
+ import android.view.View;
++import android.widget.Button;
++import android.widget.EditText;
+ 
+ import androidx.activity.OnBackPressedCallback;
+ import androidx.activity.result.ActivityResult;
+ import androidx.activity.result.ActivityResultCallback;
+ import androidx.activity.result.ActivityResultLauncher;
+ import androidx.activity.result.contract.ActivityResultContracts;
++import androidx.appcompat.app.AlertDialog;
+ import androidx.appcompat.widget.Toolbar;
+ import androidx.lifecycle.Observer;
+ 
+ import com.blankj.utilcode.util.CollectionUtils;
+ import com.blankj.utilcode.util.NetworkUtils;
++import com.google.android.material.dialog.MaterialAlertDialogBuilder;
++import com.google.android.material.textfield.TextInputLayout;
+ import com.seafile.seadroid2.R;
+ import com.seafile.seadroid2.account.Account;
+-import com.seafile.seadroid2.config.Constants;
+ import com.seafile.seadroid2.databinding.SingleSignOnWelcomeLayoutBinding;
+ import com.seafile.seadroid2.framework.model.server.ServerInfoModel;
++import com.seafile.seadroid2.framework.util.ContentResolvers;
+ import com.seafile.seadroid2.framework.util.StringUtils;
+ import com.seafile.seadroid2.framework.util.Toasts;
++import com.seafile.seadroid2.ssl.ClientCertManager;
+ import com.seafile.seadroid2.ui.WidgetUtils;
+ import com.seafile.seadroid2.ui.account.SeafileAuthenticatorActivity;
+ import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
+ 
++import java.net.URI;
++import java.net.URISyntaxException;
+ import java.util.Locale;
+ 
+ /**
+@@ -49,6 +57,24 @@ public class SingleSignOnActivity extends BaseActivityWithVM<SingleSignOnViewMod
+ 
+     private ActivityResultLauncher<Intent> authLauncher;
+     private boolean _SsoStatusPeriodicityStatus = false;
++    private ActivityResultLauncher<String[]> p12PickerLauncher;
++
++    /**
++     * The client certificate (mTLS) chosen on this screen, if any. Held until {@link #doNext()}
++     * persists it host-scoped, so the cert is in place before the first request to the server's
++     * mTLS-gated perimeter. {@code null} means "no change".
++     */
++    private PendingCert pendingCert;
++
++    /** A not-yet-persisted client cert choice (KeyChain alias, imported .p12, or removal). */
++    private static class PendingCert {
++        boolean cleared;                  // user tapped "Remove"
++        ClientCertManager.Type type;      // otherwise KEYCHAIN or P12
++        String alias;                     // KEYCHAIN
++        byte[] p12Data;                   // P12 (already validated against p12Password)
++        String p12Password;               // P12
++        String displayName;
++    }
+ 
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
+@@ -60,6 +86,11 @@ public class SingleSignOnActivity extends BaseActivityWithVM<SingleSignOnViewMod
+         applyEdgeToEdge(binding.getRoot());
+ 
+         registerAuthLauncher();
++        p12PickerLauncher = registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
++            if (uri != null) {
++                onP12Picked(uri);
++            }
++        });
+ 
+         initView();
+         initViewModel();
+@@ -116,6 +147,15 @@ public class SingleSignOnActivity extends BaseActivityWithVM<SingleSignOnViewMod
+                 doNext();
+             }
+         });
++
++        binding.clientCertButton.setOnClickListener(v -> showCertSourceChooser());
++        binding.clientCertClear.setOnClickListener(v -> {
++            PendingCert p = new PendingCert();
++            p.cleared = true;
++            pendingCert = p;
++            updateClientCertStatus();
++        });
++        updateClientCertStatus();
+     }
+ 
+     private void registerAuthLauncher() {
+@@ -197,10 +237,151 @@ public class SingleSignOnActivity extends BaseActivityWithVM<SingleSignOnViewMod
+     private void doNext() {
+         String host = getServerHost();
+         if (isServerHostValid(host)) {
++            // bind (or clear) the chosen client cert against this host before the first request,
++            // so the mTLS handshake to the perimeter (pre-flight + WebView) already presents it
++            persistPendingCert(host);
+             getViewModel().loadServerInfo(host);
+         }
+     }
+ 
++    /** Lets the user choose where the client certificate comes from: KeyChain or a .p12 file. */
++    private void showCertSourceChooser() {
++        CharSequence[] items = {
++                getString(R.string.client_cert_source_keychain),
++                getString(R.string.client_cert_source_p12)
++        };
++        new MaterialAlertDialogBuilder(this)
++                .setTitle(R.string.client_cert_choose)
++                .setItems(items, (dialog, which) -> {
++                    if (which == 0) {
++                        chooseFromKeyChain();
++                    } else {
++                        p12PickerLauncher.launch(new String[]{
++                                "application/x-pkcs12", "application/pkcs12",
++                                "application/octet-stream", "*/*"});
++                    }
++                })
++                .show();
++    }
++
++    /**
++     * Opens the Android system credential picker (KeyChain). The private key stays in the OS
++     * keystore; we only remember the chosen alias.
++     */
++    private void chooseFromKeyChain() {
++        String host = null;
++        int port = -1;
++        String serverURL = getServerHost();
++        try {
++            if (!TextUtils.isEmpty(serverURL)) {
++                URI uri = new URI(serverURL.trim());
++                host = uri.getHost();
++                port = uri.getPort();
++            }
++        } catch (URISyntaxException ignored) {
++        }
++
++        KeyChain.choosePrivateKeyAlias(this, alias -> runOnUiThread(() -> {
++            // alias is null when the user cancels; keep the previous selection in that case
++            if (alias != null) {
++                PendingCert p = new PendingCert();
++                p.type = ClientCertManager.Type.KEYCHAIN;
++                p.alias = alias;
++                p.displayName = alias;
++                pendingCert = p;
++                updateClientCertStatus();
++            }
++        }), new String[]{"RSA", "EC"}, null, host, port, null);
++    }
++
++    private void onP12Picked(Uri uri) {
++        byte[] data = ContentResolvers.getFileContentFromUri(getContentResolver(), uri);
++        if (data == null || data.length == 0) {
++            Toasts.show(R.string.client_cert_import_failed);
++            return;
++        }
++        String name = ContentResolvers.getFileNameFromUri(getContentResolver(), uri);
++        if (TextUtils.isEmpty(name)) {
++            name = "client.p12";
++        }
++        promptP12Password(data, name);
++    }
++
++    /** Asks for the .p12 password and validates it before accepting the import. */
++    private void promptP12Password(byte[] data, String displayName) {
++        View view = getLayoutInflater().inflate(R.layout.dialog_p12_password, null);
++        TextInputLayout layout = view.findViewById(R.id.p12_password_layout);
++        EditText input = view.findViewById(R.id.p12_password_input);
++
++        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
++                .setTitle(R.string.client_cert_p12_password_title)
++                .setMessage(displayName)
++                .setView(view)
++                .setNegativeButton(R.string.cancel, null)
++                .setPositiveButton(R.string.ok, null) // overridden below so a wrong password keeps the dialog open
++                .create();
++
++        dialog.setOnShowListener(d -> {
++            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
++            positive.setOnClickListener(v -> {
++                String pwd = input.getText().toString();
++                ClientCertManager.ImportResult r = ClientCertManager.instance().validateP12(data, pwd);
++                if (r == ClientCertManager.ImportResult.SUCCESS) {
++                    PendingCert p = new PendingCert();
++                    p.type = ClientCertManager.Type.P12;
++                    p.p12Data = data;
++                    p.p12Password = pwd;
++                    p.displayName = displayName;
++                    pendingCert = p;
++                    updateClientCertStatus();
++                    dialog.dismiss();
++                } else if (r == ClientCertManager.ImportResult.WRONG_PASSWORD) {
++                    layout.setError(getString(R.string.client_cert_p12_wrong_password));
++                } else {
++                    layout.setError(getString(R.string.client_cert_import_failed));
++                }
++            });
++        });
++        dialog.show();
++    }
++
++    private void updateClientCertStatus() {
++        String label = null;
++
++        if (pendingCert != null) {
++            if (!pendingCert.cleared) {
++                label = pendingCert.displayName;
++            }
++        } else {
++            // no change this session: reflect what is already stored for this host
++            label = ClientCertManager.instance().getDisplayNameForHost(getServerHost());
++        }
++
++        if (TextUtils.isEmpty(label)) {
++            binding.clientCertStatus.setText(R.string.client_cert_none);
++            binding.clientCertClear.setVisibility(View.GONE);
++        } else {
++            binding.clientCertStatus.setText(getString(R.string.client_cert_selected, label));
++            binding.clientCertClear.setVisibility(View.VISIBLE);
++        }
++    }
++
++    private void persistPendingCert(String host) {
++        if (pendingCert == null) {
++            return;
++        }
++        ClientCertManager mgr = ClientCertManager.instance();
++        if (pendingCert.cleared) {
++            mgr.deleteBindingForHost(host);
++        } else if (pendingCert.type == ClientCertManager.Type.KEYCHAIN) {
++            mgr.saveKeyChainAliasForHost(host, pendingCert.alias);
++        } else if (pendingCert.type == ClientCertManager.Type.P12) {
++            mgr.importP12ForHost(host, pendingCert.p12Data, pendingCert.p12Password, pendingCert.displayName);
++        }
++        // persisted; subsequent re-entry should reflect the stored binding again
++        pendingCert = null;
++    }
++
+     private boolean isServerHostValid(String hostUrl) {
+         if (TextUtils.isEmpty(hostUrl)) {
+             Toasts.show(R.string.shib_server_url_empty);
+@@ -313,16 +494,19 @@ public class SingleSignOnActivity extends BaseActivityWithVM<SingleSignOnViewMod
+ //        retData.putExtras(getIntent());
+         retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME, account.getSignature());
+         retData.putExtra(android.accounts.AccountManager.KEY_AUTHTOKEN, account.getToken());
+-        retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, getIntent().getStringExtra(Constants.AccountKeys.ARG_ACCOUNT_TYPE));
+-
+-        retData.putExtra(Constants.AccountKeys.ARG_EMAIL, account.getEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_CONTACT_EMAIL, account.getContactEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_NAME, account.getName());
+-        retData.putExtra(Constants.AccountKeys.ARG_SERVER_URI, account.getServer());
+-        retData.putExtra(Constants.AccountKeys.ARG_AVATAR_URL, account.getAvatarUrl());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_TOTAL, account.getTotalSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_USAGE, account.getUsageSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_SHIB, true);
++        retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, getIntent().getStringExtra(SeafileAuthenticatorActivity.ARG_ACCOUNT_TYPE));
++
++
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_EMAIL, account.getEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_CONTACT_EMAIL, account.getContactEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_NAME, account.getName());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SHIB, account.is_shib);
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SERVER_URI, account.getServer());
++
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_AVATAR_URL, account.getAvatarUrl());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SPACE_TOTAL, account.getTotalSpace());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SPACE_USAGE, account.getUsageSpace());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SHIB, true);
+ 
+         setResult(RESULT_OK, retData);
+         finish();
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnAuthorizeActivity.java b/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnAuthorizeActivity.java
+index 755ca644..4b47e08c 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnAuthorizeActivity.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/account/sso/SingleSignOnAuthorizeActivity.java
+@@ -15,6 +15,7 @@ import android.util.Pair;
+ import android.view.MenuItem;
+ import android.view.View;
+ import android.view.animation.AnimationUtils;
++import android.webkit.ClientCertRequest;
+ import android.webkit.CookieManager;
+ import android.webkit.JsResult;
+ import android.webkit.SslErrorHandler;
+@@ -41,6 +42,7 @@ import com.seafile.seadroid2.framework.util.SLogs;
+ import com.seafile.seadroid2.framework.util.Toasts;
+ import com.seafile.seadroid2.framework.util.Utils;
+ import com.seafile.seadroid2.ssl.CertsManager;
++import com.seafile.seadroid2.ssl.ClientCertKeyManager;
+ import com.seafile.seadroid2.ui.account.AccountViewModel;
+ import com.seafile.seadroid2.ui.account.SeafileAuthenticatorActivity;
+ import com.seafile.seadroid2.ui.base.BaseActivityWithVM;
+@@ -49,6 +51,7 @@ import com.seafile.seadroid2.ui.dialog.SslConfirmDialog;
+ import java.io.UnsupportedEncodingException;
+ import java.net.MalformedURLException;
+ import java.net.URLEncoder;
++import java.security.PrivateKey;
+ import java.security.cert.X509Certificate;
+ 
+ /**
+@@ -206,17 +209,12 @@ public class SingleSignOnAuthorizeActivity extends BaseActivityWithVM<AccountVie
+         retData.putExtras(getIntent());
+         retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME, account.getSignature());
+         retData.putExtra(android.accounts.AccountManager.KEY_AUTHTOKEN, account.getToken());
+-        retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, getIntent().getStringExtra(Constants.AccountKeys.ARG_ACCOUNT_TYPE));
+-
+-        retData.putExtra(Constants.AccountKeys.ARG_EMAIL, account.getEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_CONTACT_EMAIL, account.getContactEmail());
+-        retData.putExtra(Constants.AccountKeys.ARG_NAME, account.getName());
+-        retData.putExtra(Constants.AccountKeys.ARG_SERVER_URI, account.getServer());
+-        retData.putExtra(Constants.AccountKeys.ARG_AVATAR_URL, account.getAvatarUrl());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_TOTAL, account.getTotalSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_SPACE_USAGE, account.getUsageSpace());
+-        retData.putExtra(Constants.AccountKeys.ARG_SHIB, true);
+-
++        retData.putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, getIntent().getStringExtra(SeafileAuthenticatorActivity.ARG_ACCOUNT_TYPE));
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_EMAIL, account.getEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_CONTACT_EMAIL, account.getContactEmail());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_NAME, account.getName());
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SHIB, account.is_shib);
++        retData.putExtra(SeafileAuthenticatorActivity.ARG_SERVER_URI, account.getServer());
+         setResult(RESULT_OK, retData);
+         finish();
+     }
+@@ -247,6 +245,46 @@ public class SingleSignOnAuthorizeActivity extends BaseActivityWithVM<AccountVie
+     }
+ 
+     class CustomWebviewClient extends WebViewClient {
++        @Override
++        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
++            // Display error messages
++            Toasts.show(String.format((R.string.shib_load_page_error) + description));
++
++            showPageLoading(false);
++        }
++
++        @Override
++        public void onReceivedClientCertRequest(WebView view, final ClientCertRequest request) {
++            // The server's mTLS perimeter asks for a client certificate during the SSO TLS
++            // handshake. Present the cert the user picked for this host on the welcome screen
++            // (stored host-scoped, since no account exists yet). KeyChain / keystore access
++            // blocks and must not run on the UI thread; request.proceed()/ignore() are safe to
++            // call from any thread. ignore() means "no cert" (ordinary one-way TLS), which is
++            // the right behaviour when none is configured.
++            final String url = serverUrl;
++            new Thread(() -> {
++                try {
++                    final Account temp = new Account(url, null, null, null, null, false);
++                    ClientCertKeyManager km = new ClientCertKeyManager(getApplicationContext(), () -> temp);
++                    String alias = km.chooseClientAlias(new String[]{"RSA", "EC"}, request.getPrincipals(), null);
++                    if (alias == null) {
++                        request.ignore();
++                        return;
++                    }
++                    PrivateKey key = km.getPrivateKey(alias);
++                    X509Certificate[] chain = km.getCertificateChain(alias);
++                    if (key != null && chain != null && chain.length > 0) {
++                        request.proceed(key, chain);
++                    } else {
++                        request.ignore();
++                    }
++                } catch (Exception e) {
++                    SLogs.e(TAG, "onReceivedClientCertRequest failed: " + e.getMessage());
++                    request.ignore();
++                }
++            }, "sso-client-cert").start();
++        }
++
+         @Override
+         public void onReceivedSslError(WebView view, final SslErrorHandler handler, SslError error) {
+             SLogs.d(TAG, "onReceivedSslError " + error.getCertificate().toString());
+diff --git a/app/src/main/java/com/seafile/seadroid2/ui/settings/SettingsFragmentViewModel.java b/app/src/main/java/com/seafile/seadroid2/ui/settings/SettingsFragmentViewModel.java
+index d54d885f..8c298d89 100644
+--- a/app/src/main/java/com/seafile/seadroid2/ui/settings/SettingsFragmentViewModel.java
++++ b/app/src/main/java/com/seafile/seadroid2/ui/settings/SettingsFragmentViewModel.java
+@@ -79,6 +79,11 @@ public class SettingsFragmentViewModel extends BaseViewModel {
+                 Settings.USER_INFO.putValue(accountInfo.getName());
+                 Settings.USER_SERVER_INFO.putValue(accountInfo.getServer());
+                 Settings.SPACE_INFO.putValue(accountInfo.getSpaceUsed());
++
++                Account account = SupportAccountManager.getInstance().getCurrentAccount();
++                if (account != null && !TextUtils.isEmpty(accountInfo.getContactEmail())) {
++                    SupportAccountManager.getInstance().setContactEmail(account, accountInfo.getContactEmail());
++                }
+             }
+         });
+     }
+diff --git a/app/src/main/java/com/seafile/seadroid2/view/webview/SeaWebViewClient.java b/app/src/main/java/com/seafile/seadroid2/view/webview/SeaWebViewClient.java
+index 7fe49582..37d084f6 100644
+--- a/app/src/main/java/com/seafile/seadroid2/view/webview/SeaWebViewClient.java
++++ b/app/src/main/java/com/seafile/seadroid2/view/webview/SeaWebViewClient.java
+@@ -5,6 +5,7 @@ import static com.blankj.utilcode.util.ActivityUtils.startActivity;
+ import android.content.Intent;
+ import android.graphics.Bitmap;
+ import android.net.Uri;
++import android.webkit.ClientCertRequest;
+ import android.webkit.WebResourceError;
+ import android.webkit.WebResourceRequest;
+ import android.webkit.WebResourceResponse;
+@@ -17,6 +18,10 @@ import com.seafile.seadroid2.account.Account;
+ import com.seafile.seadroid2.account.SupportAccountManager;
+ import com.seafile.seadroid2.framework.util.SLogs;
+ import com.seafile.seadroid2.framework.util.Token2SessionConverts;
++import com.seafile.seadroid2.ssl.ClientCertKeyManager;
++
++import java.security.PrivateKey;
++import java.security.cert.X509Certificate;
+ 
+ import java.util.HashMap;
+ import java.util.Map;
+@@ -65,6 +70,34 @@ public class SeaWebViewClient extends BridgeWebViewClient {
+         }
+     }
+ 
++    @Override
++    public void onReceivedClientCertRequest(WebView view, ClientCertRequest request) {
++        // KeyChain / keystore access blocks and must not run on the UI thread.
++        // request.proceed() / request.ignore() are safe to call from any thread.
++        new Thread(() -> {
++            try {
++                Account account = SupportAccountManager.getInstance().getCurrentAccount();
++                ClientCertKeyManager km = new ClientCertKeyManager(
++                        view.getContext().getApplicationContext(), () -> account);
++                String alias = km.chooseClientAlias(new String[]{"RSA", "EC"}, request.getPrincipals(), null);
++                if (alias == null) {
++                    request.ignore();
++                    return;
++                }
++                PrivateKey key = km.getPrivateKey(alias);
++                X509Certificate[] chain = km.getCertificateChain(alias);
++                if (key != null && chain != null && chain.length > 0) {
++                    request.proceed(key, chain);
++                } else {
++                    request.ignore();
++                }
++            } catch (Exception e) {
++                SLogs.e("SeaWebViewClient: onReceivedClientCertRequest failed: " + e.getMessage());
++                request.ignore();
++            }
++        }, "webview-client-cert").start();
++    }
++
+     @Override
+     public boolean shouldOverrideUrlLoading(WebView wb, WebResourceRequest request) {
+         String url = request.getUrl().toString();
+diff --git a/app/src/main/res/layout/account_detail.xml b/app/src/main/res/layout/account_detail.xml
+index b3c83b9a..b6805cd1 100644
+--- a/app/src/main/res/layout/account_detail.xml
++++ b/app/src/main/res/layout/account_detail.xml
+@@ -107,6 +107,44 @@
+                 android:importantForAutofill="auto"
+                 android:inputType="number" />
+         </com.google.android.material.textfield.TextInputLayout>
++
++        <LinearLayout
++            android:id="@+id/client_cert_container"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginTop="@dimen/app_widget_top_margin_small"
++            android:orientation="vertical">
++
++            <TextView
++                android:id="@+id/client_cert_status"
++                android:layout_width="match_parent"
++                android:layout_height="wrap_content"
++                android:text="@string/client_cert_none"
++                android:textSize="@dimen/tv_txt_size" />
++
++            <LinearLayout
++                android:layout_width="match_parent"
++                android:layout_height="wrap_content"
++                android:orientation="horizontal">
++
++                <com.google.android.material.button.MaterialButton
++                    android:id="@+id/client_cert_button"
++                    style="@style/Widget.Material3.Button.OutlinedButton"
++                    android:layout_width="0dp"
++                    android:layout_height="wrap_content"
++                    android:layout_weight="1"
++                    android:text="@string/client_cert_choose" />
++
++                <com.google.android.material.button.MaterialButton
++                    android:id="@+id/client_cert_clear"
++                    style="@style/Widget.Material3.Button.TextButton"
++                    android:layout_width="wrap_content"
++                    android:layout_height="wrap_content"
++                    android:layout_marginStart="@dimen/app_widget_top_margin_small"
++                    android:text="@string/client_cert_remove"
++                    android:visibility="gone" />
++            </LinearLayout>
++        </LinearLayout>
+     </LinearLayout>
+ 
+     <CheckBox
+diff --git a/app/src/main/res/layout/dialog_p12_password.xml b/app/src/main/res/layout/dialog_p12_password.xml
+new file mode 100644
+index 00000000..d54b5e2d
+--- /dev/null
++++ b/app/src/main/res/layout/dialog_p12_password.xml
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="utf-8"?>
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    android:layout_width="match_parent"
++    android:layout_height="wrap_content"
++    android:orientation="vertical"
++    android:paddingStart="24dp"
++    android:paddingEnd="24dp"
++    android:paddingTop="8dp">
++
++    <com.google.android.material.textfield.TextInputLayout
++        android:id="@+id/p12_password_layout"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:hint="@string/client_cert_p12_password_hint"
++        app:endIconMode="password_toggle">
++
++        <com.google.android.material.textfield.TextInputEditText
++            android:id="@+id/p12_password_input"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:inputType="textPassword" />
++    </com.google.android.material.textfield.TextInputLayout>
++
++</LinearLayout>
+diff --git a/app/src/main/res/layout/single_sign_on_welcome_layout.xml b/app/src/main/res/layout/single_sign_on_welcome_layout.xml
+index 64fb2191..fd7f21f1 100644
+--- a/app/src/main/res/layout/single_sign_on_welcome_layout.xml
++++ b/app/src/main/res/layout/single_sign_on_welcome_layout.xml
+@@ -26,6 +26,45 @@
+ 
+     </com.google.android.material.textfield.TextInputLayout>
+ 
++    <LinearLayout
++        android:id="@+id/client_cert_container"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:layout_marginHorizontal="@dimen/app_padding_horizontal"
++        android:layout_marginTop="15dp"
++        android:orientation="vertical">
++
++        <TextView
++            android:id="@+id/client_cert_status"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:text="@string/client_cert_none"
++            android:textSize="@dimen/tv_txt_size" />
++
++        <LinearLayout
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:orientation="horizontal">
++
++            <com.google.android.material.button.MaterialButton
++                android:id="@+id/client_cert_button"
++                style="@style/Widget.Material3.Button.OutlinedButton"
++                android:layout_width="0dp"
++                android:layout_height="wrap_content"
++                android:layout_weight="1"
++                android:text="@string/client_cert_choose" />
++
++            <com.google.android.material.button.MaterialButton
++                android:id="@+id/client_cert_clear"
++                style="@style/Widget.Material3.Button.TextButton"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginStart="@dimen/app_widget_top_margin_small"
++                android:text="@string/client_cert_remove"
++                android:visibility="gone" />
++        </LinearLayout>
++    </LinearLayout>
++
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 9c54d11d..49f994b9 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -301,6 +301,17 @@
+     <string name="ssl_confirm">The security certificate of %s is not trusted. Do you want to continue?</string>
+     <string name="ssl_confirm_cert_changed">%s uses an invalid security certificate. The connection is not secure. Continue anyway?</string>
+     <string name="ssl_confirm_title">Untrusted Connection</string>
++    <string name="client_cert_choose">Client certificate (mTLS)</string>
++    <string name="client_cert_remove">Remove</string>
++    <string name="client_cert_none">No client certificate selected</string>
++    <string name="client_cert_selected">Client certificate: %s</string>
++    <string name="client_cert_none_installed">No client certificate is installed on this device. Install a .p12/.pfx via Settings &#8594; Security first.</string>
++    <string name="client_cert_source_keychain">Choose from Android keystore</string>
++    <string name="client_cert_source_p12">Import .p12 / .pfx file</string>
++    <string name="client_cert_p12_password_title">Certificate password</string>
++    <string name="client_cert_p12_password_hint">Password (leave empty if none)</string>
++    <string name="client_cert_p12_wrong_password">Wrong password</string>
++    <string name="client_cert_import_failed">Could not read the certificate file</string>
+     <string name="issued_to">Issued To</string>
+     <string name="finger_prints">Fingerprints</string>
+     <string name="period_of_validity">Period of Validity</string>

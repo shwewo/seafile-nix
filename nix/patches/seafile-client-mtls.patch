@@ -1,0 +1,1093 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index be3541fe..dcfca0f0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3,7 +3,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
+ PROJECT(seafile-client)
+ SET(SEAFILE_CLIENT_VERSION_MAJOR 9)
+ SET(SEAFILE_CLIENT_VERSION_MINOR 0)
+-SET(SEAFILE_CLIENT_VERSION_PATCH 20)
++SET(SEAFILE_CLIENT_VERSION_PATCH 21)
+ SET(PROJECT_VERSION "${SEAFILE_CLIENT_VERSION_MAJOR}.${SEAFILE_CLIENT_VERSION_MINOR}.${SEAFILE_CLIENT_VERSION_PATCH}")
+ ADD_DEFINITIONS(-DSEAFILE_CLIENT_VERSION=${PROJECT_VERSION})
+ ADD_DEFINITIONS(-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_26)
+@@ -41,6 +41,15 @@ OPTION(BUILD_TESTING "Build Test" OFF)
+ OPTION(BUILD_DOCS "Build Documents" OFF)
+ 
+ OPTION(BUILD_SHIBBOLETH_SUPPORT "Build Shibboleth support" OFF)
++OPTION(BUILD_CLIENT_SSO_SUPPORT "Build SSO login (browser-based; no embedded webview)" OFF)
++
++IF (BUILD_SHIBBOLETH_SUPPORT)
++    SET(BUILD_CLIENT_SSO_SUPPORT ON)
++ENDIF()
++
++IF (BUILD_CLIENT_SSO_SUPPORT)
++    ADD_DEFINITIONS(-DHAVE_CLIENT_SSO_SUPPORT)
++ENDIF()
+ 
+ option(BUILD_ENABLE_WARNINGS "Enable compiler warnings." ON)
+ 
+@@ -419,6 +428,7 @@ SET(seafile_client_sources
+   src/certs-mgr.cpp
+   src/log-uploader.cpp
+   src/sync-error-service.cpp
++  src/utils/mtls.cpp
+   src/api/api-client.cpp
+   src/api/api-request.cpp
+   src/api/api-error.cpp
+diff --git a/src/account-mgr.cpp b/src/account-mgr.cpp
+index f4ae1cb0..614a2561 100644
+--- a/src/account-mgr.cpp
++++ b/src/account-mgr.cpp
+@@ -7,11 +7,18 @@
+ #include <QDateTime>
+ #include <QMutexLocker>
+ #include <QStringList>
++#include <QDir>
++#include <QFile>
++#include <QUrl>
++#include <QJsonObject>
++#include <QJsonDocument>
++#include <QCryptographicHash>
+ 
+ #include "account-mgr.h"
+ #include "configurator.h"
+ #include "seafile-applet.h"
+ #include "utils/utils.h"
++#include "utils/mtls.h"
+ #include "api/api-error.h"
+ #include "api/requests.h"
+ #include "rpc/rpc-client.h"
+@@ -34,6 +41,16 @@ const char *kNickname = "name";
+ const char *kEmail = "email";
+ const char *kContactEmail = "contact_email";
+ 
++// Per-account mutual-TLS client certificate, stored in the ServerInfo table.
++const char *kClientSslCertPath = "client_ssl_cert_path";
++const char *kClientSslKeyPath = "client_ssl_key_path";
++const char *kClientSslCertType = "client_ssl_cert_type";
++const char *kClientSslCertPassword = "client_ssl_cert_password";
++
++// File in the seafile data dir that seaf-daemon reads to learn the per-host
++// client certificates (mirrors the system-proxy.txt mechanism).
++const char *kClientSslCertsFile = "client-ssl-certs.json";
++
+ struct ColumnCheckData {
+     QString name;
+     bool exists;
+@@ -97,6 +114,65 @@ inline void setServerInfoKeyValue(struct sqlite3 *db, const Account &account, co
+     sqlite3_free(zql);
+ }
+ 
++const char *kClientCertsSubdir = "client-certs";
++
++// Copy an account's externally-selected certificate (and key) into Seafile's
++// own data dir so it is managed internally and the original file can move or be
++// deleted. Rewrites the account's paths to the internal copies. No-op if the
++// certificate already lives in internal storage.
++void importClientSslCert(Account *account)
++{
++    if (account->clientSslCertPath.isEmpty())
++        return;
++
++    QString base = QDir(seafApplet->configurator()->seafileDir())
++                       .filePath(kClientCertsSubdir);
++    QDir().mkpath(base);
++    // Best-effort: restrict the directory to the owner (POSIX; limited on Win).
++    QFile::setPermissions(base, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
++
++    if (account->clientSslCertPath.startsWith(base)) {
++        return;     // already imported
++    }
++
++    QByteArray sig = QCryptographicHash::hash(
++        (account->serverUrl.host() + "/" + account->username).toUtf8(),
++        QCryptographicHash::Sha1).toHex();
++    QString stem = QDir(base).filePath(QString::fromLatin1(sig));
++
++    bool is_p12 = account->clientSslCertType.compare("P12", Qt::CaseInsensitive) == 0;
++    QString cert_dest = stem + (is_p12 ? ".p12" : ".pem");
++
++    QFile::remove(cert_dest);
++    if (QFile::copy(account->clientSslCertPath, cert_dest)) {
++        QFile::setPermissions(cert_dest, QFile::ReadOwner | QFile::WriteOwner);
++        account->clientSslCertPath = cert_dest;
++    } else {
++        qWarning("[mtls] failed to import certificate %s into internal storage",
++                 account->clientSslCertPath.toUtf8().constData());
++        return;
++    }
++
++    if (!account->clientSslKeyPath.isEmpty() &&
++        !account->clientSslKeyPath.startsWith(base)) {
++        QString key_dest = stem + ".key";
++        QFile::remove(key_dest);
++        if (QFile::copy(account->clientSslKeyPath, key_dest)) {
++            QFile::setPermissions(key_dest, QFile::ReadOwner | QFile::WriteOwner);
++            account->clientSslKeyPath = key_dest;
++        }
++    }
++}
++
++// Persist an account's mutual-TLS client certificate into the ServerInfo table.
++void saveAccountClientSslCert(struct sqlite3 *db, const Account &account)
++{
++    setServerInfoKeyValue(db, account, kClientSslCertPath, account.clientSslCertPath);
++    setServerInfoKeyValue(db, account, kClientSslKeyPath, account.clientSslKeyPath);
++    setServerInfoKeyValue(db, account, kClientSslCertType, account.clientSslCertType);
++    setServerInfoKeyValue(db, account, kClientSslCertPassword, account.clientSslCertPassword);
++}
++
+ }
+ 
+ AccountManager::AccountManager()
+@@ -166,6 +242,10 @@ int AccountManager::start()
+ 
+     loadAccounts();
+ 
++    // Register each saved account's client certificate and publish the map for
++    // seaf-daemon.
++    syncClientSslCerts();
++
+     connect(this, SIGNAL(accountsChanged()), this, SLOT(onAccountsChanged()));
+     connect(qApp, SIGNAL(aboutToQuit()), this, SLOT(onAboutToQuit()));
+     connect(this, SIGNAL(accountRequireRelogin(const Account&)),
+@@ -235,6 +315,14 @@ bool AccountManager::loadServerInfoCB(sqlite3_stmt *stmt, void *data)
+         account->accountInfo.email = value_string;
+     } else if (key_string == kContactEmail) {
+         account->accountInfo.contact_email = value_string;
++    } else if (key_string == kClientSslCertPath) {
++        account->clientSslCertPath = value_string;
++    } else if (key_string == kClientSslKeyPath) {
++        account->clientSslKeyPath = value_string;
++    } else if (key_string == kClientSslCertType) {
++        account->clientSslCertType = value_string;
++    } else if (key_string == kClientSslCertPassword) {
++        account->clientSslCertPassword = value_string;
+     }
+     return true;
+ }
+@@ -260,6 +348,23 @@ void AccountManager::setCurrentAccount(const Account& account)
+     emit beforeAccountSwitched();
+ 
+     Account new_account = account;
++
++    // If the account carries no certificate of its own but one was registered
++    // for its host during login (covers normal, client-SSO and Shibboleth
++    // flows), adopt it so it gets persisted with the account.
++    if (new_account.clientSslCertPath.isEmpty()) {
++        mtls::CertConfig cfg;
++        if (mtls::hostCert(new_account.serverUrl.host(), &cfg)) {
++            new_account.clientSslCertPath = cfg.certPath;
++            new_account.clientSslKeyPath = cfg.keyPath;
++            new_account.clientSslCertType = cfg.certType;
++            new_account.clientSslCertPassword = cfg.password;
++        }
++    }
++
++    // Import the certificate into Seafile's own storage (rewrites its paths).
++    importClientSslCert(&new_account);
++
+     bool account_exist = false;
+     {
+         QMutexLocker lock(&accounts_mutex_);
+@@ -319,6 +424,11 @@ void AccountManager::setCurrentAccount(const Account& account)
+     sqlite_query_exec(db, zql);
+     sqlite3_free(zql);
+ 
++    // Persist the per-account client certificate (the Accounts row now exists,
++    // satisfying the ServerInfo foreign key) and refresh the per-host map.
++    saveAccountClientSslCert(db, new_account);
++    syncClientSslCerts();
++
+     emit accountsChanged();
+ }
+ 
+@@ -351,6 +461,9 @@ int AccountManager::removeAccount(const Account& account)
+         }
+     }
+ 
++    // The removed account's certificate must no longer be advertised.
++    syncClientSslCerts();
++
+     emit accountsChanged();
+ 
+     return 0;
+@@ -495,6 +608,51 @@ void AccountManager::updateServerInfoForAllAccounts()
+         updateAccountServerInfo(accounts_[i]);
+ }
+ 
++void AccountManager::syncClientSslCerts()
++{
++    QJsonObject root;
++
++    {
++        QMutexLocker lock(&accounts_mutex_);
++        for (const Account& account : accounts_) {
++            QString host = account.serverUrl.host();
++            mtls::CertConfig cfg;
++            cfg.certPath = account.clientSslCertPath;
++            cfg.keyPath = account.clientSslKeyPath;
++            cfg.certType = account.clientSslCertType.isEmpty()
++                               ? QString("PEM") : account.clientSslCertType;
++            cfg.password = account.clientSslCertPassword;
++
++            // Register for the GUI's own api/login/SSO requests (empty config
++            // clears any stale registration for this host).
++            mtls::setHostCert(host, cfg);
++
++            if (!cfg.isEmpty()) {
++                QJsonObject entry;
++                entry["cert_path"] = cfg.certPath;
++                entry["key_path"] = cfg.keyPath;
++                entry["cert_type"] = cfg.certType;
++                entry["cert_password"] = cfg.password;
++                root[host.toLower()] = entry;
++            }
++        }
++    }
++
++    // Publish the per-host certificate map for seaf-daemon to read (file sync).
++    QString path = QDir(seafApplet->configurator()->seafileDir())
++                       .filePath(kClientSslCertsFile);
++    QFile f(path);
++    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++        f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
++        f.close();
++        // Best-effort: the file holds certificate passwords, so keep it private
++        // (POSIX 0600; on platforms without owner-only perms this is a no-op).
++        f.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
++    } else {
++        qWarning("[mtls] failed to write %s", path.toUtf8().constData());
++    }
++}
++
+ void AccountManager::updateAccountServerInfo(const Account& account)
+ {
+     ServerInfoRequest *request = new ServerInfoRequest(account);
+diff --git a/src/account-mgr.h b/src/account-mgr.h
+index d89aa7c9..c7e3b653 100644
+--- a/src/account-mgr.h
++++ b/src/account-mgr.h
+@@ -122,6 +122,9 @@ private:
+     Q_DISABLE_COPY(AccountManager)
+ 
+     void updateAccountServerInfo(const Account& account);
++    // Register every account's mutual-TLS client certificate with the api/SSO
++    // layer and publish the per-host map for seaf-daemon.
++    void syncClientSslCerts();
+     static bool loadAccountsCB(struct sqlite3_stmt *stmt, void *data);
+     static bool loadServerInfoCB(struct sqlite3_stmt *stmt, void *data);
+ 
+diff --git a/src/account.h b/src/account.h
+index 39fe175b..590e0ed3 100644
+--- a/src/account.h
++++ b/src/account.h
+@@ -29,6 +29,14 @@ public:
+     bool isAutomaticLogin;
+     QString s2fa_token;
+ 
++    // Mutual TLS: client certificate presented to this account's server.
++    QString clientSslCertPath;
++    QString clientSslKeyPath;
++    QString clientSslCertType;     // "PEM" (default) or "P12"
++    QString clientSslCertPassword;
++
++    bool hasClientSslCert() const { return !clientSslCertPath.isEmpty(); }
++
+     Account() : serverInfo(),
+                 lastVisited(0),
+                 isShibboleth(false),
+@@ -55,7 +63,11 @@ public:
+         lastVisited(rhs.lastVisited),
+         isShibboleth(rhs.isShibboleth),
+         isAutomaticLogin(rhs.isAutomaticLogin),
+-        s2fa_token(rhs.s2fa_token)
++        s2fa_token(rhs.s2fa_token),
++        clientSslCertPath(rhs.clientSslCertPath),
++        clientSslKeyPath(rhs.clientSslKeyPath),
++        clientSslCertType(rhs.clientSslCertType),
++        clientSslCertPassword(rhs.clientSslCertPassword)
+     {
+     }
+ 
+@@ -69,6 +81,10 @@ public:
+         isShibboleth = rhs.isShibboleth;
+         isAutomaticLogin = rhs.isAutomaticLogin;
+         s2fa_token = rhs.s2fa_token;
++        clientSslCertPath = rhs.clientSslCertPath;
++        clientSslKeyPath = rhs.clientSslKeyPath;
++        clientSslCertType = rhs.clientSslCertType;
++        clientSslCertPassword = rhs.clientSslCertPassword;
+         return *this;
+     }
+ 
+diff --git a/src/api/api-client.cpp b/src/api/api-client.cpp
+index 087d061c..4bfb46a8 100644
+--- a/src/api/api-client.cpp
++++ b/src/api/api-client.cpp
+@@ -11,6 +11,7 @@
+ #include "ui/main-window.h"
+ #include "ui/ssl-confirm-dialog.h"
+ #include "utils/utils.h"
++#include "utils/mtls.h"
+ #include "network-mgr.h"
+ #include "server-status-service.h"
+ 
+@@ -80,6 +81,13 @@ SeafileApiClient::~SeafileApiClient()
+ 
+ void SeafileApiClient::prepareRequest(QNetworkRequest *req)
+ {
++    // Mutual TLS: present the client certificate (if configured) so login/SSO
++    // and other api2 requests can authenticate against an mTLS-protected server.
++    QSslConfiguration ssl_config;
++    if (mtls::configurationForUrl(req->url(), &ssl_config)) {
++        req->setSslConfiguration(ssl_config);
++    }
++
+     if (use_cache_) {
+         req->setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
+         req->setAttribute(QNetworkRequest::CacheSaveControlAttribute, true);
+diff --git a/src/settings-mgr.cpp b/src/settings-mgr.cpp
+index 34e0e745..69be3a56 100644
+--- a/src/settings-mgr.cpp
++++ b/src/settings-mgr.cpp
+@@ -41,9 +41,9 @@ const char *kComputerName = "computerName";
+ #ifdef HAVE_FINDER_SYNC_SUPPORT
+ const char *kFinderSync = "finderSync";
+ #endif // HAVE_FINDER_SYNC_SUPPORT
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+ const char *kLastShibUrl = "lastShiburl";
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+ 
+ #if defined(Q_OS_LINUX) || defined(Q_OS_MAC)
+ const char * kSetHideWindowsIncompatibilityPathMsg = "setHideWindowsIncompatibilityPathMsg";
+@@ -652,7 +652,7 @@ int SettingsManager::repoSortOrder() const
+     return repo_sort_orders_;
+ }
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+ QString SettingsManager::getLastShibUrl()
+ {
+     QSettings settings;
+@@ -672,7 +672,7 @@ void SettingsManager::setLastShibUrl(const QString &url)
+     settings.setValue(kLastShibUrl, url);
+     settings.endGroup();
+ }
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+ 
+ #ifdef HAVE_FINDER_SYNC_SUPPORT
+ bool SettingsManager::getFinderSyncExtension() const
+diff --git a/src/settings-mgr.h b/src/settings-mgr.h
+index 03b7bca4..484538ba 100644
+--- a/src/settings-mgr.h
++++ b/src/settings-mgr.h
+@@ -102,10 +102,10 @@ public:
+     void setRepoSortOrder(int order);
+     int repoSortOrder() const;
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+     QString getLastShibUrl();
+     void setLastShibUrl(const QString& url);
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+ 
+ #ifdef HAVE_FINDER_SYNC_SUPPORT
+     bool getFinderSyncExtension() const;
+diff --git a/src/shib/shib-login-dialog.cpp b/src/shib/shib-login-dialog.cpp
+index 342278b0..57c669b2 100644
+--- a/src/shib/shib-login-dialog.cpp
++++ b/src/shib/shib-login-dialog.cpp
+@@ -6,17 +6,24 @@
+   #include <QWebEnginePage>
+   #include <QWebEngineProfile>
+   #include <QWebEngineCookieStore>
++  #if QT_VERSION >= QT_VERSION_CHECK(5, 13, 0)
++    #include <QWebEngineClientCertificateStore>
++    #include <QWebEngineClientCertificateSelection>
++  #endif
+   #include "shib-helper.h"
+ #endif
+ #include <QVBoxLayout>
+ #include <QList>
+ #include <QLineEdit>
+ #include <QSslError>
++#include <QSslKey>
++#include <QSslCertificate>
+ #include <QNetworkReply>
+ #include <QNetworkCookie>
+ 
+ #include "seafile-applet.h"
+ #include "utils/utils.h"
++#include "utils/mtls.h"
+ #include "utils/api-utils.h"
+ #include "account-mgr.h"
+ #include "network-mgr.h"
+@@ -76,6 +83,25 @@ ShibLoginDialog::ShibLoginDialog(const QUrl& url,
+     QWebEngineCookieStore *jar = webview_->page()->profile()->cookieStore();
+     connect(jar, SIGNAL(cookieAdded(const QNetworkCookie&)),
+             this, SLOT(onWebEngineCookieAdded(const QNetworkCookie&)));
++
++#if QT_VERSION >= QT_VERSION_CHECK(5, 13, 0)
++    // Mutual TLS: make the configured client certificate available to the SSO
++    // web view and auto-select it when the IdP requests a client certificate.
++    if (mtls::hasCertForUrl(url_)) {
++        QSslCertificate cert;
++        QSslKey key;
++        if (mtls::certAndKeyForUrl(url_, &cert, &key)) {
++            web_engine_profile_->clientCertificateStore()->add(cert, key);
++            connect(web_engine_page_, &QWebEnginePage::selectClientCertificate,
++                    this, [](QWebEngineClientCertificateSelection selection) {
++                        const QList<QSslCertificate> certs = selection.certificates();
++                        if (!certs.isEmpty()) {
++                            selection.select(certs.first());
++                        }
++                    });
++        }
++    }
++#endif
+ #endif
+ 
+     QUrl shib_login_url(url_);
+diff --git a/src/ui/login-dialog.cpp b/src/ui/login-dialog.cpp
+index 46e03e31..df159df8 100644
+--- a/src/ui/login-dialog.cpp
++++ b/src/ui/login-dialog.cpp
+@@ -13,6 +13,7 @@
+ #include "api/requests.h"
+ #include "login-dialog.h"
+ #include "utils/utils.h"
++#include "utils/mtls.h"
+ #ifdef HAVE_SHIBBOLETH_SUPPORT
+ #include "shib/shib-login-dialog.h"
+ #endif // HAVE_SHIBBOLETH_SUPPORT
+@@ -23,7 +24,7 @@ const char *kUsedServerAddresses = "UsedServerAddresses";
+ const char *const kPreconfigureServerAddr = "PreconfigureServerAddr";
+ const char *const kPreconfigureServerAddrOnly = "PreconfigureServerAddrOnly";
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+ const char *const kPreconfigureShibbolethLoginUrl = "PreconfigureShibbolethLoginUrl";
+ #endif
+ 
+@@ -77,8 +78,10 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
+     request_ = NULL;
+     account_info_req_ = NULL;
+     is_remember_device_ = false;
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+     connect(&client_sso_timer_, SIGNAL(timeout()),
+             this, SLOT(checkClientSSOStatus()));
++#endif
+ 
+     mStatusText->setText("");
+     mLogo->setPixmap(QPixmap(":/images/seafile-32.png"));
+@@ -100,23 +103,150 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
+ 
+     connect(mSubmitBtn, SIGNAL(clicked()), this, SLOT(doLogin()));
+ 
++    setupMtlsSection();
++
+     const QRect screen = getScreenSize(0);
+     move(screen.center() - this->rect().center());
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+     setupShibLoginLink();
+ #else
+     mSSOBtn->hide();
+ #endif
+ }
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+ void LoginDialog::setupShibLoginLink()
+ {
+     connect(mSSOBtn, SIGNAL(clicked()),
+             this, SLOT(loginWithShib()));
+ }
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
++
++// Build a "[line edit] [...]" container so it can be shown/hidden as one item.
++static QWidget *makeBrowseRow(QLineEdit **edit_out, QPushButton **btn_out,
++                              const QString& placeholder)
++{
++    QWidget *row = new QWidget;
++    QHBoxLayout *h = new QHBoxLayout(row);
++    h->setContentsMargins(0, 0, 0, 0);
++    h->setSpacing(4);
++    QLineEdit *edit = new QLineEdit;
++    edit->setPlaceholderText(placeholder);
++    QPushButton *btn = new QPushButton(QObject::tr("..."));
++    btn->setMaximumWidth(32);
++    h->addWidget(edit);
++    h->addWidget(btn);
++    *edit_out = edit;
++    *btn_out = btn;
++    return row;
++}
++
++void LoginDialog::setupMtlsSection()
++{
++    // Add the certificate controls as extra rows of the existing login form
++    // grid, so they line up (and stay centered) with the other fields.
++    int r = gridLayout->rowCount();
++
++    mtls_enable_ = new QCheckBox(tr("Use a client certificate (mutual TLS)"));
++    gridLayout->addWidget(mtls_enable_, r++, 1, 1, 1);
++
++    QPushButton *cert_btn = nullptr;
++    QPushButton *key_btn = nullptr;
++
++    mtls_cert_label_ = new QLabel(tr("Certificate:"));
++    mtls_cert_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
++    mtls_cert_row_ = makeBrowseRow(&mtls_cert_, &cert_btn, tr("PEM or .p12 file"));
++    gridLayout->addWidget(mtls_cert_label_, r, 0);
++    gridLayout->addWidget(mtls_cert_row_, r, 1);
++    r++;
++
++    mtls_key_label_ = new QLabel(tr("Key:"));
++    mtls_key_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
++    mtls_key_row_ = makeBrowseRow(&mtls_key_, &key_btn, tr("PEM key (if separate)"));
++    gridLayout->addWidget(mtls_key_label_, r, 0);
++    gridLayout->addWidget(mtls_key_row_, r, 1);
++    r++;
++
++    mtls_password_label_ = new QLabel(tr("Password:"));
++    mtls_password_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
++    mtls_password_ = new QLineEdit;
++    mtls_password_->setEchoMode(QLineEdit::Password);
++    mtls_password_->setPlaceholderText(tr("optional"));
++    mtls_password_row_ = mtls_password_;
++    gridLayout->addWidget(mtls_password_label_, r, 0);
++    gridLayout->addWidget(mtls_password_, r, 1);
++    r++;
++
++    connect(cert_btn, SIGNAL(clicked()), this, SLOT(browseClientCert()));
++    connect(key_btn, SIGNAL(clicked()), this, SLOT(browseClientKey()));
++    connect(mtls_enable_, &QCheckBox::toggled, this, [this](bool) {
++        updateMtlsKeyRow();
++    });
++
++    updateMtlsKeyRow();   // collapsed (unchecked) by default
++}
++
++QString LoginDialog::detectedCertType() const
++{
++    QString path = mtls_cert_->text().trimmed();
++    if (path.endsWith(".p12", Qt::CaseInsensitive) ||
++        path.endsWith(".pfx", Qt::CaseInsensitive)) {
++        return "P12";
++    }
++    return "PEM";
++}
++
++void LoginDialog::updateMtlsKeyRow()
++{
++    bool on = mtls_enable_->isChecked();
++    // A PKCS#12 bundle already contains the key, so the key row is PEM-only.
++    bool is_pem = detectedCertType() != "P12";
++
++    mtls_cert_label_->setVisible(on);
++    mtls_cert_row_->setVisible(on);
++    mtls_key_label_->setVisible(on && is_pem);
++    mtls_key_row_->setVisible(on && is_pem);
++    mtls_password_label_->setVisible(on);
++    mtls_password_->setVisible(on);
++
++    adjustSize();
++}
++
++void LoginDialog::browseClientCert()
++{
++    QString path = QFileDialog::getOpenFileName(
++        this, tr("Select client certificate"), mtls_cert_->text(),
++        tr("Certificates (*.p12 *.pfx *.pem *.crt *.cer);;All files (*)"));
++    if (!path.isEmpty()) {
++        mtls_cert_->setText(path);
++        updateMtlsKeyRow();
++    }
++}
++
++void LoginDialog::browseClientKey()
++{
++    QString path = QFileDialog::getOpenFileName(
++        this, tr("Select private key"), mtls_key_->text(),
++        tr("Private keys (*.pem *.key);;All files (*)"));
++    if (!path.isEmpty()) {
++        mtls_key_->setText(path);
++    }
++}
++
++void LoginDialog::applyMtlsForLogin(const QUrl& server_url)
++{
++    if (mtls_enable_->isChecked() && !mtls_cert_->text().trimmed().isEmpty()) {
++        mtls::CertConfig cfg;
++        cfg.certPath = mtls_cert_->text().trimmed();
++        cfg.keyPath = mtls_key_->text().trimmed();
++        cfg.certType = detectedCertType();
++        cfg.password = mtls_password_->text();
++        mtls::setHostCert(server_url.host(), cfg);
++    } else {
++        mtls::removeHostCert(server_url.host());
++    }
++}
+ 
+ void LoginDialog::initFromAccount(const Account& account)
+ {
+@@ -130,6 +260,14 @@ void LoginDialog::initFromAccount(const Account& account)
+     mUsername->setText(account.getDisplayEmail());
+     mPassword->setFocus(Qt::OtherFocusReason);
+     mAutomaticLogin->setCheckState(account.isAutomaticLogin ? Qt::Checked : Qt::Unchecked);
++
++    if (account.hasClientSslCert()) {
++        mtls_enable_->setChecked(true);
++        mtls_cert_->setText(account.clientSslCertPath);
++        mtls_key_->setText(account.clientSslKeyPath);
++        mtls_password_->setText(account.clientSslCertPassword);
++        updateMtlsKeyRow();
++    }
+ }
+ 
+ void LoginDialog::doLogin()
+@@ -139,6 +277,10 @@ void LoginDialog::doLogin()
+     }
+     saveUsedServerAddresses(url_.toString());
+ 
++    // Present the client certificate (if any) so the login request can reach
++    // an mTLS-protected server. It is persisted with the account on success.
++    applyMtlsForLogin(url_);
++
+     mStatusText->setText(tr("Logging in..."));
+ 
+     disableInputs();
+@@ -179,6 +321,10 @@ void LoginDialog::disableInputs()
+     mSubmitBtn->setEnabled(false);
+     mComputerName->setEnabled(false);
+     mSSOBtn->setEnabled(false);
++    mtls_enable_->setEnabled(false);
++    mtls_cert_row_->setEnabled(false);
++    mtls_key_row_->setEnabled(false);
++    mtls_password_->setEnabled(false);
+ }
+ 
+ void LoginDialog::enableInputs()
+@@ -189,6 +335,10 @@ void LoginDialog::enableInputs()
+     mSubmitBtn->setEnabled(true);
+     mComputerName->setEnabled(true);
+     mSSOBtn->setEnabled(true);
++    mtls_enable_->setEnabled(true);
++    mtls_cert_row_->setEnabled(true);
++    mtls_key_row_->setEnabled(true);
++    mtls_password_->setEnabled(true);
+ }
+ 
+ void LoginDialog::onNetworkError(const QNetworkReply::NetworkError& error, const QString& error_string)
+@@ -362,7 +512,7 @@ void LoginDialog::showWarning(const QString& msg)
+     seafApplet->warningBox(msg, this);
+ }
+ 
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+ 
+ bool LoginDialog::getShibLoginUrl(const QString& last_shib_url, QUrl *url_out)
+ {
+@@ -436,6 +586,9 @@ void LoginDialog::loginWithShib()
+     seafApplet->settingsManager()->setLastShibUrl(url.toString());
+     sso_server_ = url;
+ 
++    // Present the client certificate (if any) for the SSO/IdP requests.
++    applyMtlsForLogin(sso_server_);
++
+     ServerInfoRequest *request = new ServerInfoRequest(sso_server_);
+     connect(request, SIGNAL(success(const ServerInfo&)),
+             this, SLOT(serverInfoSuccess(const ServerInfo&)));
+@@ -447,10 +600,16 @@ void LoginDialog::loginWithShib()
+ void LoginDialog::serverInfoSuccess(const ServerInfo& info)
+ {
+     if (!info.clientSSOViaLocalBrowser) {
++#ifdef HAVE_SHIBBOLETH_SUPPORT
+         ShibLoginDialog shib_dialog(sso_server_, mComputerName->text(), this);
+         if (shib_dialog.exec() == QDialog::Accepted) {
+             accept();
+         }
++#else
++        showWarning(tr("This server requires in-app SSO login, which is not "
++                       "available in this build. Ask your admin to enable "
++                       "browser-based client SSO."));
++#endif
+         return;
+     }
+ 
+@@ -546,4 +705,4 @@ void LoginDialog::clientSSOStatusFailed(const ApiError& error)
+     client_sso_timer_.stop();
+ }
+ 
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+diff --git a/src/ui/login-dialog.h b/src/ui/login-dialog.h
+index 9c33abbe..4c73c08a 100644
+--- a/src/ui/login-dialog.h
++++ b/src/ui/login-dialog.h
+@@ -20,6 +20,10 @@ class FetchAccountInfoRequest;
+ class AccountInfo;
+ class ServerInfo;
+ class ClientSSOStatus;
++class QCheckBox;
++class QLineEdit;
++class QLabel;
++class QWidget;
+ 
+ class LoginDialog : public QDialog,
+                     public Ui::LoginDialog
+@@ -35,7 +39,9 @@ private slots:
+     void loginFailed(const ApiError& error);
+     void onFetchAccountInfoSuccess(const AccountInfo& info);
+     void onFetchAccountInfoFailed(const ApiError&);
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++    void browseClientCert();
++    void browseClientKey();
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+     void loginWithShib();
+     void serverInfoSuccess(const ServerInfo&);
+     void serverInfoFailed(const ApiError&);
+@@ -44,7 +50,7 @@ private slots:
+     void checkClientSSOStatus();
+     void clientSSOStatusSuccess(const ClientSSOStatus&);
+     void clientSSOStatusFailed(const ApiError&);
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+ 
+ private:
+     Q_DISABLE_COPY(LoginDialog);
+@@ -60,12 +66,22 @@ private:
+     void enableInputs();
+     void showWarning(const QString& msg);
+ 
++    // Mutual TLS (client certificate) section.
++    void setupMtlsSection();
++    // Register the entered certificate for the given server host so the login
++    // and account-info requests present it.
++    void applyMtlsForLogin(const QUrl& server_url);
++    // "P12" if the selected certificate is a PKCS#12 bundle, else "PEM".
++    QString detectedCertType() const;
++    // Show the private-key picker only for PEM certificates.
++    void updateMtlsKeyRow();
++
+     void onNetworkError(const QNetworkReply::NetworkError& error, const QString& error_string);
+     void onSslErrors(QNetworkReply *reply, const QList<QSslError>& errors);
+     void onHttpError(int code);
+-#ifdef HAVE_SHIBBOLETH_SUPPORT
++#ifdef HAVE_CLIENT_SSO_SUPPORT
+     bool getShibLoginUrl(const QString& last_shib_url, QUrl *url_out);
+-#endif // HAVE_SHIBBOLETH_SUPPORT
++#endif // HAVE_CLIENT_SSO_SUPPORT
+ 
+     QUrl url_;
+     QUrl sso_server_;
+@@ -81,6 +97,18 @@ private:
+     QTimer client_sso_timer_;
+     bool client_sso_success_;
+ 
++    // Mutual TLS widgets (added programmatically into the login form grid).
++    QCheckBox *mtls_enable_;
++    QLineEdit *mtls_cert_;
++    QLineEdit *mtls_key_;
++    QLineEdit *mtls_password_;
++    QLabel *mtls_cert_label_;
++    QLabel *mtls_key_label_;
++    QLabel *mtls_password_label_;
++    QWidget *mtls_cert_row_;
++    QWidget *mtls_key_row_;
++    QWidget *mtls_password_row_;
++
+ #ifdef HAVE_SHIBBOLETH_SUPPORT
+     LoginMode mode_;
+ #endif // HAVE_SHIBBOLETH_SUPPORT
+diff --git a/src/utils/mtls.cpp b/src/utils/mtls.cpp
+new file mode 100644
+index 00000000..c8362d39
+--- /dev/null
++++ b/src/utils/mtls.cpp
+@@ -0,0 +1,208 @@
++#include <QByteArray>
++#include <QFile>
++#include <QHash>
++#include <QList>
++#include <QSettings>
++#include <QString>
++#include <QUrl>
++#include <QSslCertificate>
++#include <QSslConfiguration>
++#include <QSslKey>
++
++#include "mtls.h"
++
++namespace {
++
++// host (lowercased) -> certificate configuration
++QHash<QString, mtls::CertConfig> g_host_certs;
++// host -> built QSslConfiguration cache (empty config means "not loadable")
++QHash<QString, QSslConfiguration> g_config_cache;
++
++QString hostKey(const QString& host)
++{
++    return host.toLower();
++}
++
++// Host-agnostic fallback from environment variables (and, for backwards
++// compatibility, the old global QSettings keys).
++mtls::CertConfig envFallback()
++{
++    mtls::CertConfig cfg;
++
++    QByteArray p = qgetenv("SEAFILE_CLIENT_SSL_CERT_PATH");
++    if (!p.isEmpty()) {
++        cfg.certPath = QString::fromUtf8(p);
++        cfg.keyPath = QString::fromUtf8(qgetenv("SEAFILE_CLIENT_SSL_KEY_PATH"));
++        cfg.certType = QString::fromUtf8(qgetenv("SEAFILE_CLIENT_SSL_CERT_TYPE"));
++        cfg.password = QString::fromUtf8(qgetenv("SEAFILE_CLIENT_SSL_CERT_PASSWORD"));
++        return cfg;
++    }
++
++    QSettings settings;
++    settings.beginGroup("Settings");
++    cfg.certPath = settings.value("clientSslCertPath").toString();
++    cfg.keyPath = settings.value("clientSslKeyPath").toString();
++    cfg.certType = settings.value("clientSslCertType").toString();
++    cfg.password = settings.value("clientSslCertPassword").toString();
++    settings.endGroup();
++    return cfg;
++}
++
++mtls::CertConfig resolveConfig(const QString& host)
++{
++    QString key = hostKey(host);
++    if (g_host_certs.contains(key)) {
++        return g_host_certs.value(key);
++    }
++    return envFallback();
++}
++
++// QSslKey requires the algorithm to be specified up front, so try each one.
++QSslKey loadPrivateKey(const QByteArray& pem, const QByteArray& passphrase)
++{
++    const QSsl::KeyAlgorithm algos[] = {QSsl::Rsa, QSsl::Ec, QSsl::Dsa};
++    for (size_t i = 0; i < sizeof(algos) / sizeof(algos[0]); ++i) {
++        QSslKey key(pem, algos[i], QSsl::Pem, QSsl::PrivateKey, passphrase);
++        if (!key.isNull()) {
++            return key;
++        }
++    }
++    return QSslKey();
++}
++
++bool loadCertKey(const mtls::CertConfig& cfg,
++                 QSslCertificate* cert_out, QSslKey* key_out)
++{
++    if (cfg.isEmpty()) {
++        return false;
++    }
++
++    QByteArray password = cfg.password.toUtf8();
++
++    QFile cert_file(cfg.certPath);
++    if (!cert_file.open(QIODevice::ReadOnly)) {
++        qWarning("[mtls] cannot open client certificate %s",
++                 cfg.certPath.toUtf8().constData());
++        return false;
++    }
++
++    if (cfg.certType.compare("P12", Qt::CaseInsensitive) == 0) {
++        QSslKey key;
++        QSslCertificate cert;
++        QList<QSslCertificate> ca_certs;
++        if (!QSslCertificate::importPkcs12(&cert_file, &key, &cert, &ca_certs,
++                                           password)) {
++            qWarning("[mtls] failed to import PKCS#12 bundle %s (wrong password?)",
++                     cfg.certPath.toUtf8().constData());
++            return false;
++        }
++        *cert_out = cert;
++        *key_out = key;
++        return !cert.isNull() && !key.isNull();
++    }
++
++    // PEM certificate + private key.
++    QList<QSslCertificate> certs =
++        QSslCertificate::fromData(cert_file.readAll(), QSsl::Pem);
++    if (certs.isEmpty()) {
++        qWarning("[mtls] no PEM certificate found in %s",
++                 cfg.certPath.toUtf8().constData());
++        return false;
++    }
++
++    QByteArray key_pem;
++    if (!cfg.keyPath.isEmpty()) {
++        QFile key_file(cfg.keyPath);
++        if (key_file.open(QIODevice::ReadOnly)) {
++            key_pem = key_file.readAll();
++        }
++    } else {
++        // The key may live in the same PEM file as the certificate.
++        cert_file.seek(0);
++        key_pem = cert_file.readAll();
++    }
++
++    QSslKey key = loadPrivateKey(key_pem, password);
++    if (key.isNull()) {
++        qWarning("[mtls] failed to load PEM private key for %s",
++                 cfg.certPath.toUtf8().constData());
++        return false;
++    }
++
++    *cert_out = certs.first();
++    *key_out = key;
++    return true;
++}
++
++} // namespace
++
++namespace mtls {
++
++void setHostCert(const QString& host, const CertConfig& cfg)
++{
++    QString key = hostKey(host);
++    g_config_cache.remove(key);
++    if (cfg.isEmpty()) {
++        g_host_certs.remove(key);
++        return;
++    }
++    g_host_certs.insert(key, cfg);
++}
++
++void removeHostCert(const QString& host)
++{
++    QString key = hostKey(host);
++    g_host_certs.remove(key);
++    g_config_cache.remove(key);
++}
++
++bool hostCert(const QString& host, CertConfig* out)
++{
++    QString key = hostKey(host);
++    if (!g_host_certs.contains(key)) {
++        return false;
++    }
++    *out = g_host_certs.value(key);
++    return true;
++}
++
++bool hasCertForUrl(const QUrl& url)
++{
++    return !resolveConfig(url.host()).isEmpty();
++}
++
++bool configurationForUrl(const QUrl& url, QSslConfiguration* out)
++{
++    QString key = hostKey(url.host());
++
++    if (g_config_cache.contains(key)) {
++        QSslConfiguration cached = g_config_cache.value(key);
++        if (cached.isNull()) {
++            return false;   // previously determined not loadable
++        }
++        *out = cached;
++        return true;
++    }
++
++    QSslCertificate cert;
++    QSslKey pkey;
++    if (!loadCertKey(resolveConfig(url.host()), &cert, &pkey)) {
++        // Cache the negative result to avoid re-reading files every request.
++        g_config_cache.insert(key, QSslConfiguration());
++        return false;
++    }
++
++    QSslConfiguration config = QSslConfiguration::defaultConfiguration();
++    config.setLocalCertificate(cert);
++    config.setPrivateKey(pkey);
++    g_config_cache.insert(key, config);
++    *out = config;
++    return true;
++}
++
++bool certAndKeyForUrl(const QUrl& url, QSslCertificate* cert, QSslKey* key)
++{
++    return loadCertKey(resolveConfig(url.host()), cert, key);
++}
++
++} // namespace mtls
+diff --git a/src/utils/mtls.h b/src/utils/mtls.h
+new file mode 100644
+index 00000000..5df8a257
+--- /dev/null
++++ b/src/utils/mtls.h
+@@ -0,0 +1,62 @@
++#ifndef SEAFILE_CLIENT_UTILS_MTLS_H
++#define SEAFILE_CLIENT_UTILS_MTLS_H
++
++#include <QString>
++
++/*
++ * Mutual TLS (client certificate) helpers.
++ *
++ * Client certificates are configured per server host (each account may use a
++ * different certificate). The registry below is populated from saved accounts
++ * and from the login dialog before authentication.
++ *
++ * As a host-agnostic fallback, a single certificate may also be supplied via
++ * environment variables (handy for headless/test setups):
++ *
++ *   SEAFILE_CLIENT_SSL_CERT_PATH      PEM cert or .p12 bundle
++ *   SEAFILE_CLIENT_SSL_KEY_PATH       PEM private key (PEM only)
++ *   SEAFILE_CLIENT_SSL_CERT_TYPE      "PEM" (default) or "P12"
++ *   SEAFILE_CLIENT_SSL_CERT_PASSWORD  key / bundle passphrase
++ */
++
++class QUrl;
++class QSslConfiguration;
++class QSslCertificate;
++class QSslKey;
++
++namespace mtls {
++
++struct CertConfig {
++    QString certPath;
++    QString keyPath;
++    QString certType;   // "PEM" (default) or "P12"
++    QString password;
++
++    bool isEmpty() const { return certPath.isEmpty(); }
++};
++
++// Register (or replace) the client certificate presented to a server host.
++// An empty certPath removes any registration for that host.
++void setHostCert(const QString& host, const CertConfig& cfg);
++void removeHostCert(const QString& host);
++
++// Retrieve the certificate explicitly registered for a host (not the env
++// fallback). Returns false if none is registered.
++bool hostCert(const QString& host, CertConfig* out);
++
++// True if a client certificate is configured for this url's host (or via the
++// environment fallback).
++bool hasCertForUrl(const QUrl& url);
++
++// Build the QSslConfiguration carrying the client certificate for this url's
++// host. Returns false (leaving *out untouched) when none is configured or it
++// could not be loaded.
++bool configurationForUrl(const QUrl& url, QSslConfiguration* out);
++
++// Load just the certificate and private key for this url's host, e.g. to feed
++// QtWebEngine's client certificate store for SSO. Returns false on failure.
++bool certAndKeyForUrl(const QUrl& url, QSslCertificate* cert, QSslKey* key);
++
++} // namespace mtls
++
++#endif // SEAFILE_CLIENT_UTILS_MTLS_H
