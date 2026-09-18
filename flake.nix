@@ -79,12 +79,7 @@
             inherit pkgs lib versions;
           };
 
-          packages =
-            result.packages
-            // { default = result.packages.seafile-client; }
-            // lib.optionalAttrs pkgs.stdenv.isDarwin {
-              seafile-pkg-aarch64 = result.packages.seafile-pkg;
-            };
+          packages = result.packages // { default = result.packages.seafile-client; };
         in
         {
           inherit packages;

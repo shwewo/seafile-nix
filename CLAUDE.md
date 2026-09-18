@@ -37,7 +37,7 @@ flake.nix              # inputs (nixpkgs only) + the `versions` pin table + top-
 nix/default.nix         # fetchFromGitHub + applyPatches per component; wires components/linux/darwin/android together
 nix/components.nix       # seafile-shared (seaf-daemon) and seafile-client (Qt) derivations
 nix/linux.nix            # AppDir/AppImage bundling for Seafile + SeaDrive
-nix/darwin.nix           # .app bundle + aarch64 .pkg installer
+nix/darwin.nix           # .app bundle + aarch64 .dmg disk image
 nix/android.nix          # Android SDK/NDK/CMake toolchain + patched seadroid source (dev shell, not a nix build)
 nix/patches/*.patch      # one patch per component, mTLS-only
 .github/workflows/build.yml  # CI: builds everything, publishes one GitHub release per push to main

@@ -4,7 +4,18 @@ Seafile and SeaDrive desktop clients, plus the Android app, built with mutual TL
 
 One monorepo, no forks: every component is pristine upstream ([haiwen](https://github.com/haiwen)) source fetched at a pinned tag, with a small mTLS patch from `nix/patches/` applied on top. Pins live in the `versions` block of `flake.nix`; patches apply via `pkgs.applyPatches` in `nix/default.nix`. See [Bumping a version](#bumping-a-version) below.
 
-Every push to `main` first checks that every patch still applies against its pinned tag, then builds all of it and publishes a new [release](../../releases): AppImages (x86_64 + aarch64 Linux), a macOS pkg, and an Android APK. The release is always titled plain "Seafile" — no version in the title, just in the tag and the checksummed filenames. The Android build requires a real signing key to be configured (see [Android](#android)); without one, that job fails on purpose rather than quietly shipping an unsigned build.
+Every push to `main` first checks that every patch still applies against its pinned tag (`patches` job), then builds four artifacts in parallel and publishes them together as one new [release](../../releases):
+
+| CI job | Runner | Artifact |
+|---|---|---|
+| `appimage` (matrix) | `ubuntu-latest` | `seafile-*-x86_64.AppImage`, `seadrive-*-x86_64.AppImage` |
+| `appimage` (matrix) | `ubuntu-24.04-arm` | `seafile-*-aarch64.AppImage`, `seadrive-*-aarch64.AppImage` |
+| `dmg` | `macos-latest` (Apple Silicon) | `seafile-*-aarch64.dmg` |
+| `android` | `ubuntu-latest` | `seadroid-*.apk` (release-signed only — see [Android](#android)) |
+
+Each row is a genuinely different build (different OS, different toolchain) — none of these are aliases or duplicates of each other, unlike the old `seafile-pkg` / `seafile-pkg-aarch64` naming this replaced. There is exactly one macOS artifact (a `.dmg`, Apple Silicon only — no Intel/x86_64-darwin build exists) and exactly one Android artifact (aarch64 Android, release-signed).
+
+The release is always titled plain "Seafile" — no version in the title, just in the tag and the checksummed filenames. The Android build requires a real signing key to be configured (see [Android](#android)); without one, that job fails on purpose rather than quietly shipping an unsigned build.
 
 ## Install
 
@@ -12,7 +23,7 @@ Prebuilt, no Nix needed — grab an asset from the [releases page](../../release
 
 ```
 chmod +x seafile-*.AppImage && ./seafile-*.AppImage    # or seadrive-*.AppImage
-sudo installer -pkg seafile-*.pkg -target /            # macOS
+open seafile-*.dmg                                     # macOS — drag Seafile.app to Applications
 adb install seadroid-*.apk                             # or copy the APK to the device
 ```
 
@@ -73,7 +84,7 @@ too, it's just less reproducible across rebuilds.
 | `seadrive-gui` | Linux | SeaDrive Qt client |
 | `seadrive-fuse` | Linux | seadrive FUSE daemon |
 | `seadrive-appdir` / `seadrive-appimage` | Linux | Relocatable AppDir / self-contained AppImage |
-| `seafile-app` / `seafile-pkg` | macOS | .app bundle / pkg installer |
+| `seafile-app` / `seafile-dmg` | macOS (aarch64) | .app bundle / .dmg disk image |
 | `seadroid-src` | all | Patched Android source (see [Android](#android)) |
 | `seadroid-debug-apk` | all | `nix run` → unsigned debug APK, no secrets (see [Android](#android)) |
 | `patches-check` | all | Applies every patch, builds nothing else — what CI runs first |
