@@ -12,10 +12,10 @@ Every push to `main` first checks that every patch still applies against its pin
 |---|---|---|
 | `appimage` (matrix) | `ubuntu-latest` | `seafile-*-x86_64.AppImage`, `seadrive-*-x86_64.AppImage` |
 | `appimage` (matrix) | `ubuntu-24.04-arm` | `seafile-*-aarch64.AppImage`, `seadrive-*-aarch64.AppImage` |
-| `dmg` | `macos-latest` (Apple Silicon) | `seafile-*-aarch64.dmg` |
+| `pkg` | `macos-latest` (Apple Silicon) | `seafile-*-aarch64.pkg` |
 | `android` | `ubuntu-latest` | `seadroid-*.apk` (release-signed only — see [Android](#android)) |
 
-Each row is a genuinely different build (different OS, different toolchain) — none of these are aliases or duplicates of each other, unlike the old `seafile-pkg` / `seafile-pkg-aarch64` naming this replaced. There is exactly one macOS artifact (a `.dmg`, Apple Silicon only — no Intel/x86_64-darwin build exists) and exactly one Android artifact (aarch64 Android, release-signed).
+Each row is a genuinely different build (different OS, different toolchain) — none of these are aliases or duplicates of each other, unlike the old `seafile-pkg` / `seafile-pkg-aarch64` naming this replaced. There is exactly one macOS artifact (a `.pkg` installer, Apple Silicon only — no Intel/x86_64-darwin build exists) and exactly one Android artifact (aarch64 Android, release-signed).
 
 The release is always titled plain "Seafile" — no version in the title, just in the tag and the checksummed filenames. The Android build requires a real signing key to be configured (see [Android](#android)); without one, that job fails on purpose rather than quietly shipping an unsigned build.
 
@@ -25,7 +25,7 @@ Prebuilt, no Nix needed — grab an asset from the [releases page](../../release
 
 ```
 chmod +x seafile-*.AppImage && ./seafile-*.AppImage    # or seadrive-*.AppImage
-open seafile-*.dmg                                     # macOS — drag Seafile.app to Applications
+sudo installer -pkg seafile-*.pkg -target /            # macOS
 adb install seadroid-*.apk                             # or copy the APK to the device
 ```
 
@@ -86,7 +86,7 @@ too, it's just less reproducible across rebuilds.
 | `seadrive-gui` | Linux | SeaDrive Qt client |
 | `seadrive-fuse` | Linux | seadrive FUSE daemon |
 | `seadrive-appdir` / `seadrive-appimage` | Linux | Relocatable AppDir / self-contained AppImage |
-| `seafile-app` / `seafile-dmg` | macOS (aarch64) | .app bundle / .dmg disk image |
+| `seafile-app` / `seafile-pkg` | macOS (aarch64) | .app bundle / pkg installer |
 | `seadroid-src` | all | Patched Android source (see [Android](#android)) |
 | `seadroid-debug-apk` | all | `nix run` → unsigned debug APK, no secrets (see [Android](#android)) |
 | `patches-check` | all | Applies every patch, builds nothing else — what CI runs first |

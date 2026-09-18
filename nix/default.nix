@@ -93,9 +93,9 @@ let
       inherit (linux) seadrive-fuse seadrive-gui seadrive-appdir seadrive-appimage;
     }
     // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-      # nix build .#seafile-app → Seafile.app bundle (aarch64-darwin only)
-      # nix build .#seafile-dmg → .dmg disk image containing it
-      inherit (darwin) seafile-app seafile-dmg;
+      # nix build .#seafile-app → Seafile.app bundle
+      # nix build .#seafile-pkg → aarch64 macOS installer
+      inherit (darwin) seafile-app seafile-pkg;
     };
 
 in

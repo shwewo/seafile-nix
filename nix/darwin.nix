@@ -1,5 +1,4 @@
-# macOS packaging: .app bundle, and a .dmg disk image built from it.
-# Apple Silicon (aarch64-darwin) only — see ../flake.nix's `systems` list.
+# macOS packaging: .app bundle and single-arch (aarch64) .pkg installer.
 {
   pkgs,
   lib,
@@ -11,6 +10,12 @@
 
 let
   inherit (pkgs) runCommand qt6 macdylibbundler cctools coreutils findutils fetchurl;
+  inherit (pkgs)
+    xar
+    bomutils
+    cpio
+    gzip
+    ;
 
   # Extract FinderSync extension from the official Seafile macOS DMG.
   # The appex is built with Xcode in upstream releases; our cmake client
@@ -49,22 +54,31 @@ let
     "${qt6.qt5compat}/lib/qt-6/plugins"
   ];
 
-  # Wrap a Seafile.app directory tree in a standard drag-to-Applications
-  # .dmg: the .app plus an /Applications symlink side by side at the volume
-  # root. Built with the real hdiutil on the macOS builder (same pattern as
-  # findersyncAppex above reading one) — there's no pure-Nix way to produce
-  # the UDIF disk-image format, so this step is inherently impure/darwin-only.
-  mkDmg =
-    dmgName: app:
-    runCommand dmgName
+  # Wrap a Seafile.app directory tree in a macOS installer .pkg.
+  mkPkg =
+    pkgName: app:
+    runCommand pkgName
       {
-        nativeBuildInputs = [ coreutils findutils ];
+        nativeBuildInputs = [ xar bomutils cpio gzip coreutils findutils ];
       }
       ''
         payload=$(mktemp -d)
-        cp -R ${app}/Applications/Seafile.app "$payload/Seafile.app"
-        ln -s /Applications "$payload/Applications"
-        /usr/bin/hdiutil create -volname "Seafile" -srcfolder "$payload" -ov -format UDZO "$out"
+        mkdir -p $payload/Applications
+        cp -R ${app}/Applications/Seafile.app $payload/Applications/
+
+        build=$(mktemp -d)
+        ( cd $payload && find . | cpio -o --format odc 2>/dev/null | gzip -9 ) > $build/Payload
+        mkbom -u 0 -g 80 $payload $build/Bom
+
+        numfiles=$(find $payload | wc -l | tr -d ' ')
+        kbytes=$(du -sk $payload | cut -f1)
+        cat > $build/PackageInfo <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info format-version="2" identifier="com.seafile.seafile-client" version="${version}" install-location="/" auth="root">
+  <payload installKBytes="$kbytes" numberOfFiles="$numfiles"/>
+</pkg-info>
+EOF
+        ( cd $build && xar --compression none -cf "$out" PackageInfo Bom Payload )
       '';
 
   seafile-app = runCommand "seafile-app-${version}"
@@ -99,9 +113,9 @@ let
         ${findersyncAppex}
     '';
 
-  seafile-dmg = mkDmg "seafile-${version}.dmg" seafile-app;
+  seafile-pkg = mkPkg "seafile-${version}.pkg" seafile-app;
 
 in
 {
-  inherit seafile-app seafile-dmg;
+  inherit seafile-app seafile-pkg;
 }

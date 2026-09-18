@@ -72,11 +72,11 @@ jobs:
             seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage
             seadrive-${{ env.SEADRIVE_VERSION }}-${{ matrix.arch }}.AppImage.sha256
 
-  # macOS .dmg. Apple Silicon (aarch64-darwin) only — GitHub's `macos-latest`
-  # hosted runners are M-series, and that's the only macOS system this flake
-  # builds for (see the `systems` list in flake.nix; there's no x86_64-darwin
-  # output to confuse this with).
-  dmg:
+  # macOS installer .pkg. Apple Silicon (aarch64-darwin) only — GitHub's
+  # `macos-latest` hosted runners are M-series, and that's the only macOS
+  # system this flake builds for (see the `systems` list in flake.nix;
+  # there's no x86_64-darwin output to confuse this with).
+  pkg:
     needs: [version, patches]
     runs-on: macos-latest
     env:
@@ -85,16 +85,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v14
       - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#packages.aarch64-darwin.seafile-dmg
+      - run: nix build .#packages.aarch64-darwin.seafile-pkg
       - run: |
-          cp result "seafile-${VERSION}-aarch64.dmg"
-          shasum -a 256 "seafile-${VERSION}-aarch64.dmg" > "seafile-${VERSION}-aarch64.dmg.sha256"
+          cp result "seafile-${VERSION}-aarch64.pkg"
+          shasum -a 256 "seafile-${VERSION}-aarch64.pkg" > "seafile-${VERSION}-aarch64.pkg.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: dmg
+          name: pkg
           path: |
-            seafile-${{ env.VERSION }}-aarch64.dmg
-            seafile-${{ env.VERSION }}-aarch64.dmg.sha256
+            seafile-${{ env.VERSION }}-aarch64.pkg
+            seafile-${{ env.VERSION }}-aarch64.pkg.sha256
 
   # Builds the Android APK. Gradle resolves dependencies from Maven at build
   # time, so — unlike every other job here — this isn't a hermetic `nix
@@ -143,7 +143,7 @@ jobs:
           keyStore=release.keystore
           keyStorePassword=${KEYSTORE_PASSWORD}
           keyAlias=${KEY_ALIAS}
-          keyPassword=${KEY_PASSWORD}
+          keyAliasPassword=${KEY_PASSWORD}
           EOF
       - name: Build release APK
         working-directory: seadroid-build
@@ -164,7 +164,7 @@ jobs:
   # plain "Seafile" — version info lives in the tag and the checksummed
   # filenames, not the title.
   release:
-    needs: [version, appimage, dmg, android]
+    needs: [version, appimage, pkg, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -190,4 +190,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --latest \
             --notes-file notes.md \
-            dist/*.AppImage dist/*.dmg dist/*.apk dist/*.sha256
+            dist/*.AppImage dist/*.pkg dist/*.apk dist/*.sha256
