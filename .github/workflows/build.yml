@@ -148,7 +148,7 @@ jobs:
       - name: Build release APK
         working-directory: seadroid-build
         run: |
-          nix develop .. .#android -c ./gradlew assembleRelease --console=plain
+          nix develop ..#android -c ./gradlew assembleRelease --console=plain
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
           cp "$APK" "../seadroid-${SEADROID_VERSION}.apk"
       - run: sha256sum "seadroid-${SEADROID_VERSION}.apk" > "seadroid-${SEADROID_VERSION}.apk.sha256"
