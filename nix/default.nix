@@ -62,17 +62,30 @@ let
     seadroidSrc = seadroidSrc;
   };
 
+  # Patched sources only — fetch + patch, no compiler involved. Cheap and
+  # fast, so CI builds these before anything else: if a patch has bitrotted
+  # against its pinned tag, this fails in seconds instead of minutes into a
+  # Qt/Gradle build. `patches-check` builds all of them in one command.
+  patchedSources = {
+    seafile-src = seafileSrc;
+    seafile-client-src = seafileClientSrc;
+    seadrive-fuse-src = seadriveFuseSrc;
+    seadrive-gui-src = seadriveGuiSrc;
+    seadroid-src = seadroidSrc;
+  };
+
   packages =
     {
       # nix build .#seafile-shared      → seaf-daemon only (all platforms)
       # nix build .#seafile-client      → Seafile Qt client, default output (all platforms)
       inherit (components) seafile-shared seafile-client;
 
-      # nix build .#seadroid-src        → patched Android source (all platforms)
+      # nix build .#patches-check       → applies every patch, builds nothing else (all platforms)
       # nix run   .#seadroid-debug-apk  → builds + drops an unsigned debug APK in $PWD (needs network at run time, see nix/android.nix)
-      seadroid-src = android.src;
+      patches-check = pkgs.linkFarm "patches-check" patchedSources;
       seadroid-debug-apk = android.debugApk;
     }
+    // patchedSources
     // lib.optionalAttrs pkgs.stdenv.isLinux {
       # Linux AppDir / AppImage outputs and SeaDrive derivations — see nix/linux.nix
       seafile-appdir = linux.appdir;

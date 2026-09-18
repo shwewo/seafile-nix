@@ -4,7 +4,7 @@ Seafile and SeaDrive desktop clients, plus the Android app, built with mutual TL
 
 One monorepo, no forks: every component is pristine upstream ([haiwen](https://github.com/haiwen)) source fetched at a pinned tag, with a small mTLS patch from `nix/patches/` applied on top. Pins live in the `versions` block of `flake.nix`; patches apply via `pkgs.applyPatches` in `nix/default.nix`. See [Bumping a version](#bumping-a-version) below.
 
-Every push to `main` builds all of it and publishes a new [release](../../releases): AppImages (x86_64 + aarch64 Linux), a macOS pkg, and an Android APK.
+Every push to `main` first checks that every patch still applies against its pinned tag, then builds all of it and publishes a new [release](../../releases): AppImages (x86_64 + aarch64 Linux), a macOS pkg, and an Android APK. The release is always titled plain "Seafile" — no version in the title, just in the tag and the checksummed filenames. The Android build requires a real signing key to be configured (see [Android](#android)); without one, that job fails on purpose rather than quietly shipping an unsigned build.
 
 ## Install
 
@@ -76,6 +76,7 @@ too, it's just less reproducible across rebuilds.
 | `seafile-app` / `seafile-pkg` | macOS | .app bundle / pkg installer |
 | `seadroid-src` | all | Patched Android source (see [Android](#android)) |
 | `seadroid-debug-apk` | all | `nix run` → unsigned debug APK, no secrets (see [Android](#android)) |
+| `patches-check` | all | Applies every patch, builds nothing else — what CI runs first |
 
 The macOS app bundles the FinderSync extension from the official Seafile DMG.
 
@@ -93,7 +94,7 @@ Fetches the patched source, builds `assembleDebug` with a throwaway self-signed 
 
 ### Release APK — needs a real signing key, CI-only
 
-There's deliberately no local one-liner for this: a release build must be signed with **your** real key, not a throwaway one, and that key can't live in this repo or its Nix store outputs (both are public). The `android` job in `.github/workflows/build.yml` builds `assembleRelease` **only if** four repo secrets are set — `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` — and otherwise silently falls back to publishing an unsigned debug build instead, so the pipeline never blocks on a secret that doesn't exist yet. If you want real signed releases out of CI, set those four secrets in the repo's GitHub settings first.
+There's deliberately no local one-liner for this: a release build must be signed with **your** real key, not a throwaway one, and that key can't live in this repo or its Nix store outputs (both are public). The `android` job in `.github/workflows/build.yml` requires four repo secrets — `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` — and **fails immediately, before checking anything out, if any of them are missing**. It does not fall back to an unsigned build; a broken/missing key blocks the release rather than silently shipping an unsigned APK under the Seafile name. Set those four secrets in the repo's GitHub settings before the Android job will pass.
 
 Generate the keystore once, locally, and keep it out of the repo entirely (a password manager or a secrets vault, not a file in this checkout):
 
