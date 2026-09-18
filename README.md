@@ -1,5 +1,7 @@
 # Seafile mTLS
 
+[![Build](https://github.com/shwewo/seafile-nix/actions/workflows/build.yml/badge.svg)](https://github.com/shwewo/seafile-nix/actions/workflows/build.yml)
+
 Seafile and SeaDrive desktop clients, plus the Android app, built with mutual TLS support.
 
 One monorepo, no forks: every component is pristine upstream ([haiwen](https://github.com/haiwen)) source fetched at a pinned tag, with a small mTLS patch from `nix/patches/` applied on top. Pins live in the `versions` block of `flake.nix`; patches apply via `pkgs.applyPatches` in `nix/default.nix`. See [Bumping a version](#bumping-a-version) below.
