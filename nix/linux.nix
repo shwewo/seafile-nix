@@ -30,8 +30,8 @@ let
   # ── Shared helpers ───────────────────────────────────────────────────────────
 
   dynamicLinker =
-    if pkgs.stdenv.isx86_64 then "/lib64/ld-linux-x86-64.so.2"
-    else if pkgs.stdenv.isAarch64 then "/lib/ld-linux-aarch64.so.1"
+    if pkgs.stdenv.hostPlatform.isx86_64 then "/lib64/ld-linux-x86-64.so.2"
+    else if pkgs.stdenv.hostPlatform.isAarch64 then "/lib/ld-linux-aarch64.so.1"
     else throw "unsupported Linux architecture for AppDir";
 
   appimageRuntime =

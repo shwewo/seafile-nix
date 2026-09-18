@@ -8,7 +8,7 @@
 }:
 
 let
-  isDarwin = pkgs.stdenv.isDarwin;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
   seafile-shared = pkgs.seafile-shared.overrideAttrs (old: {
     inherit version;

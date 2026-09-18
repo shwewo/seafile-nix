@@ -86,13 +86,13 @@ let
       seadroid-debug-apk = android.debugApk;
     }
     // patchedSources
-    // lib.optionalAttrs pkgs.stdenv.isLinux {
+    // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
       # Linux AppDir / AppImage outputs and SeaDrive derivations — see nix/linux.nix
       seafile-appdir = linux.appdir;
       seafile-appimage = linux.seafile-appimage;
       inherit (linux) seadrive-fuse seadrive-gui seadrive-appdir seadrive-appimage;
     }
-    // lib.optionalAttrs pkgs.stdenv.isDarwin {
+    // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
       # nix build .#seafile-app → Seafile.app bundle (aarch64-darwin only)
       # nix build .#seafile-dmg → .dmg disk image containing it
       inherit (darwin) seafile-app seafile-dmg;
