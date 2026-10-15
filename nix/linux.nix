@@ -36,14 +36,17 @@ let
 
   appimageRuntime =
     let
+      # Pinned to a dated release; `continuous` is rebuilt in place upstream,
+      # which silently changes its hash and breaks the fixed-output fetch.
+      runtimeTag = "20251108";
       runtimes = {
         "x86_64-linux" = fetchurl {
-          url = "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64";
-          hash = "sha256-HMSbzx4szVk8N5rbF8n4WjbWGQiCllBN6VsdBiFa678=";
+          url = "https://github.com/AppImage/type2-runtime/releases/download/${runtimeTag}/runtime-x86_64";
+          hash = "sha256-L8qLRDySUQ8Ug6iD9gBhrQm0a5eLJjHIB82HOkfsJg0=";
         };
         "aarch64-linux" = fetchurl {
-          url = "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64";
-          hash = "sha256-fV13K3wy8MhMrwpFKjBypXCQJ9fqxYVv64mnp6iIE3I=";
+          url = "https://github.com/AppImage/type2-runtime/releases/download/${runtimeTag}/runtime-aarch64";
+          hash = "sha256-AMvfz5F8xsD/bTNH1Z4Moff0Wm3xpCig1tinhmTYdEQ=";
         };
       };
     in
