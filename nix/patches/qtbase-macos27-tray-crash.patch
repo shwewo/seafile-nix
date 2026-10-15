@@ -1,0 +1,31 @@
+Backport of qtbase 6192d9edd00caa14ed6b67c32c0cd8cfe95cf815 (in Qt >= 6.12.0):
+"macOS: Don't assume the current event is a mouse event in the tray icon".
+
+On macOS 27, NSControls are driven by gesture recognizers, so by the time the
+status item's action / NSMenuDidBeginTrackingNotification fires,
+NSApp.currentEvent can be e.g. a MouseExited event. Asking it for
+clickCount raises NSInternalInconsistencyException and aborts the app
+(seafile-applet crashes as soon as the tray menu is opened).
+
+Upstream adds a qt_mac_isMouseEvent() helper that doesn't exist in 6.11.2;
+this uses the existing cocoaEvent2QtMouseEvent() it wraps instead.
+Drop this once nixpkgs ships Qt >= 6.12.0.
+
+--- a/src/plugins/platforms/cocoa/qcocoasystemtrayicon.mm
++++ b/src/plugins/platforms/cocoa/qcocoasystemtrayicon.mm
+@@ -244,6 +244,15 @@
+ 
+ void QCocoaSystemTrayIcon::emitActivated()
+ {
++    // NSControls are driven by gesture recognizers in macOS 27,
++    // which means NSApp.currentEvent may not be a mouse event
++    // at the point when we receive the status bar button's
++    // action callback. This is a quick fix to avoid crashing.
++    if (cocoaEvent2QtMouseEvent(NSApp.currentEvent) == QEvent::None) {
++        emit activated(QPlatformSystemTrayIcon::Unknown);
++        return;
++    }
++
+     auto *mouseEvent = NSApp.currentEvent;
+ 
+     auto activationReason = QPlatformSystemTrayIcon::Unknown;

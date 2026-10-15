@@ -39,7 +39,8 @@ nix/components.nix       # seafile-shared (seaf-daemon) and seafile-client (Qt) 
 nix/linux.nix            # AppDir/AppImage bundling for Seafile + SeaDrive
 nix/darwin.nix           # .app bundle + aarch64 .pkg installer
 nix/android.nix          # Android SDK/NDK/CMake toolchain + patched seadroid source (dev shell, not a nix build)
-nix/patches/*.patch      # one patch per component, mTLS-only
+nix/patches/*-mtls.patch # one patch per component, mTLS-only
+nix/patches/qtbase-macos27-tray-crash.patch  # not mTLS: Qt 6.12 backport, macOS bundle's libqcocoa only (see nix/darwin.nix); drop once nixpkgs has Qt >= 6.12
 .github/workflows/build.yml  # CI: builds everything, publishes one GitHub release per push to main
 ```
 

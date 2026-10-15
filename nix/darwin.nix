@@ -47,8 +47,16 @@ let
   infoPlist = "${seafileClientSrc}/Info.plist";
   icns = "${seafileClientSrc}/seafile.icns";
 
+  # Only the qtbase *plugins* (libqcocoa.dylib) come from this patched build;
+  # everything else keeps using the stock (cached) qt6, so no Qt module
+  # rebuild cascade. Same Qt version and config, so the plugin is ABI-compatible
+  # with the bundled stock frameworks. See the patch header for details.
+  qtbaseTrayFix = qt6.qtbase.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ./patches/qtbase-macos27-tray-crash.patch ];
+  });
+
   qtPluginDirs = lib.concatStringsSep ":" [
-    "${qt6.qtbase}/lib/qt-6/plugins"
+    "${qtbaseTrayFix}/lib/qt-6/plugins"
     "${qt6.qtsvg}/lib/qt-6/plugins"
     "${qt6.qtdeclarative}/lib/qt-6/plugins"
     "${qt6.qt5compat}/lib/qt-6/plugins"
