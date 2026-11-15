@@ -52,8 +52,16 @@ let
             "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld"
             "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld"
           ];
+        # nixpkgs' fix_build_with_QT6.patch targets v9.0.20; its message-poller.cpp
+        # hunk is upstream since v9.0.21, so apply only its CMake part (find qmake6).
+        patches = [ ];
         postPatch =
           (old.postPatch or "")
+          + ''
+            substituteInPlace CMakeLists.txt \
+              --replace-fail 'FIND_PROGRAM(qmake_executable NAMES qmake qmake.exe)' 'FIND_PROGRAM(qmake_executable NAMES qmake6)' \
+              --replace-fail 'bash -c "qmake --version|' 'bash -c "''${qmake_executable} --version|'
+          ''
           # nixpkgs 26.11 ships Darwin deps built for macOS 13/14; the client
           # hardcodes a deployment target of 11. Bump it to match so lld doesn't
           # warn about linking newer dylibs into an older-targeted binary.
@@ -65,7 +73,6 @@ let
             substituteInPlace src/utils/utils.h \
               --replace-fail '#if defined(XCODE_APP)' '#if 1'
           '';
-        inherit (old) patches;
         meta =
           old.meta
           // lib.optionalAttrs isDarwin {

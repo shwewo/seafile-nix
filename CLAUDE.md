@@ -23,8 +23,8 @@ nix/linux.nix             # AppDir/AppImage for Seafile + SeaDrive
 nix/darwin.nix            # Seafile.app + aarch64 .pkg
 nix/android.nix           # seadroid dev shell (JDK/SDK/NDK); not a sandboxed build
 nix/patches/*-mtls.patch  # one per component, mTLS-only
-nix/patches/qtbase-macos27-tray-crash.patch  # not mTLS: Qt 6.12 backport for the macOS
-                          # bundle's libqcocoa only; drop once nixpkgs has Qt >= 6.12
+nix/fuse2/                # libfuse 2.9.9 for seadrive-fuse (nixpkgs removed fuse2);
+                          # drop once seadrive-fuse supports fuse3
 scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
 .github/workflows/build.yml  # builds everything, one release per push to main
 ```
