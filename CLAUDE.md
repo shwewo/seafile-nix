@@ -26,6 +26,8 @@ nix/patches/*-mtls.patch  # one per component, mTLS-only
 nix/fuse2/                # libfuse 2.9.9 for seadrive-fuse (nixpkgs removed fuse2);
                           # drop once seadrive-fuse supports fuse3
 scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
+scripts/check-bump.sh     # check/apply a version bump; regenerate a patch
+MAINTAINING.md            # how to bump without being a C expert; test checklist
 .github/workflows/build.yml  # builds everything, one release per push to main
 ```
 
@@ -47,6 +49,9 @@ Gradle needs network access, so it runs in `nix develop .#android`, not in `nix 
   from repo secrets (release build), or generates a throwaway key (debug build).
 
 ## Bumping a version
+
+Use `scripts/check-bump.sh` (see MAINTAINING.md, which also has the per-patch map and the
+mTLS test checklist).
 
 1. Change `rev` in `versions` to the new **tag**, then build to get the new `hash`.
 2. If the patch fails, reconcile only the rejected hunk against the new upstream code. Get the
