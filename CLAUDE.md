@@ -29,12 +29,14 @@ scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
 .github/workflows/build.yml  # builds everything, one release per push to main
 ```
 
-## Pins that aren't "latest"
+## Coupled pins
 
-- `seafile` and `seafile-client` are both on **v9.0.20**, on purpose. Client v9.0.21 needs core
-  v9.0.21, and core v9.0.21 rewrote `daemon/notif-mgr.c`, which the mTLS patch touches. Bump
-  them together, and reconcile the patch by hand.
-- `seadrive-gui` is on **v3.0.22**, the only version its patch was verified against.
+- `seafile` and `seafile-client` must be on the same tag (client headers/constants come from
+  core). Bump them together.
+- In `seafile`'s `daemon/notif-mgr.c` (since v9.0.21), upstream owns proxy setup and rebuilds
+  the lws context on every reconnect (`reset_lws_context`). The patch only adds the client
+  cert. The PKCS#12 `SSL_CTX` it passes as `provided_client_ssl_ctx` is not freed by lws, so
+  `reset_lws_context` frees it after destroying the old context.
 
 ## Android
 

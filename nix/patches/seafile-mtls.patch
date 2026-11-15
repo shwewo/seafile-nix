@@ -1,5 +1,5 @@
 diff --git a/daemon/http-tx-mgr.c b/daemon/http-tx-mgr.c
-index 67c0616f..f326cead 100644
+index dc64f40..f543a1d 100644
 --- a/daemon/http-tx-mgr.c
 +++ b/daemon/http-tx-mgr.c
 @@ -7,6 +7,7 @@
@@ -263,7 +263,7 @@ index 67c0616f..f326cead 100644
      if (!seaf->disable_verify_certificate) {
          curl_easy_setopt (curl, CURLOPT_SSL_CTX_FUNCTION, ssl_callback);
 diff --git a/daemon/http-tx-mgr.h b/daemon/http-tx-mgr.h
-index 4f22c951..9e24f0fb 100644
+index 4f22c95..9e24f0f 100644
 --- a/daemon/http-tx-mgr.h
 +++ b/daemon/http-tx-mgr.h
 @@ -115,6 +115,16 @@ http_tx_manager_new (struct _SeafileSession *seaf);
@@ -284,10 +284,10 @@ index 4f22c951..9e24f0fb 100644
  http_tx_manager_add_download (HttpTxManager *manager,
                                const char *repo_id,
 diff --git a/daemon/notif-mgr.c b/daemon/notif-mgr.c
-index 416d4beb..bc0323f5 100644
+index f76aa1b..c0fb9d2 100644
 --- a/daemon/notif-mgr.c
 +++ b/daemon/notif-mgr.c
-@@ -3,9 +3,17 @@
+@@ -3,7 +3,14 @@
  #include "common.h"
  #include <libwebsockets.h>
  #include <string.h>
@@ -301,15 +301,10 @@ index 416d4beb..bc0323f5 100644
 +#endif
  
  #include "seafile-session.h"
-+#include "seafile-config.h"
- #include "notif-mgr.h"
- #include "sync-mgr.h"
- 
-@@ -40,7 +48,11 @@ typedef struct NotifServer {
-     char    *addr;
+ #include "seafile-config.h"
+@@ -40,6 +47,9 @@ typedef struct NotifServer {
      char    *path;
      int     port;
-+    char    *proxy_addr;
  
 +#ifndef USE_GPL_CRYPTO
 +    SSL_CTX *ssl_ctx;
@@ -317,84 +312,35 @@ index 416d4beb..bc0323f5 100644
      gint    refcnt;
  } NotifServer;
  
-@@ -158,7 +170,47 @@ static void
+@@ -157,7 +167,7 @@ static void
  notif_server_ref (NotifServer *server);
  
  static struct lws_context *
--lws_context_new (int port);
+-lws_context_new (gboolean use_ssl);
 +lws_context_new (NotifServer *server, gboolean use_ssl, const char *host);
-+
-+static void
-+set_lws_proxy (struct lws_context_creation_info *info, NotifServer *server)
-+{
-+    int proxy_port;
-+
-+    if (!seaf->use_http_proxy || !seaf->http_proxy_type || !seaf->http_proxy_addr)
-+        return;
-+
-+    proxy_port = seaf->http_proxy_port > 0 ? seaf->http_proxy_port :
-+        (g_strcmp0(seaf->http_proxy_type, PROXY_TYPE_HTTP) == 0 ? 80 : 1080);
-+
-+    if (seaf->http_proxy_username && seaf->http_proxy_password &&
-+        g_strcmp0(seaf->http_proxy_username, "") != 0) {
-+        server->proxy_addr = g_strdup_printf ("%s:%s@%s",
-+                                              seaf->http_proxy_username,
-+                                              seaf->http_proxy_password,
-+                                              seaf->http_proxy_addr);
-+    } else {
-+        server->proxy_addr = g_strdup (seaf->http_proxy_addr);
+ 
+ static void
+ init_client_connect_info (NotifServer *server);
+@@ -198,10 +208,17 @@ reset_lws_context (NotifServer *server)
+         lws_context_destroy (server->context);
+         server->context = NULL;
+     }
++#ifndef USE_GPL_CRYPTO
++    /* lws does not free a provided_client_ssl_ctx; drop the old one. */
++    if (server->ssl_ctx) {
++        SSL_CTX_free (server->ssl_ctx);
++        server->ssl_ctx = NULL;
 +    }
-+
-+    if (g_strcmp0(seaf->http_proxy_type, PROXY_TYPE_HTTP) == 0) {
-+        info->http_proxy_address = server->proxy_addr;
-+        info->http_proxy_port = proxy_port;
-+    } else if (g_strcmp0(seaf->http_proxy_type, PROXY_TYPE_SOCKS) == 0) {
-+#if defined(LWS_WITH_SOCKS5)
-+        info->socks_proxy_address = server->proxy_addr;
-+        info->socks_proxy_port = proxy_port;
-+#else
-+        seaf_warning ("SOCKS proxy is not supported for the notification "
-+                      "server (libwebsockets built without SOCKS5 support).\n");
-+        g_free (server->proxy_addr);
-+        server->proxy_addr = NULL;
 +#endif
-+    } else {
-+        g_free (server->proxy_addr);
-+        server->proxy_addr = NULL;
-+    }
-+}
  
- static NotifServer*
- notif_new_server (const char *server_url, gboolean use_notif_server_port)
-@@ -184,10 +236,14 @@ notif_new_server (const char *server_url, gboolean use_notif_server_port)
-     if (strncmp(server_url, "https", 5) == 0) {
-         use_ssl = TRUE;
-     }
--    
+     server->wsi = NULL;
  
--    context = lws_context_new (use_ssl);
-+    server = g_new0 (NotifServer, 1);
-+    server->messages = g_async_queue_new ();
-+
-+    context = lws_context_new (server, use_ssl, uri->host);
-     if (!context) {
-+        g_async_queue_unref (server->messages);
-+        g_free (server);
-         g_free (uri->scheme);
-         g_free (uri->host);
-         g_free (uri);
-@@ -195,10 +251,6 @@ notif_new_server (const char *server_url, gboolean use_notif_server_port)
-         return NULL;
-     }
+-    server->context = lws_context_new (server->use_ssl);
++    server->context = lws_context_new (server, server->use_ssl, server->addr);
+     if (!server->context)
+         return -1;
  
--    server = g_new0 (NotifServer, 1);
--
--    server->messages = g_async_queue_new ();
--
-     server->context = context;
-     server->server_url = g_strdup (server_url);
-     server->addr = g_strdup (uri->host);
-@@ -254,9 +306,14 @@ notif_server_free (NotifServer *server)
+@@ -290,6 +307,10 @@ notif_server_free (NotifServer *server)
          return;
      if (server->context)
          lws_context_destroy(server->context);
@@ -405,11 +351,7 @@ index 416d4beb..bc0323f5 100644
      g_free (server->server_url);
      g_free (server->addr);
      g_free (server->path);
-+    g_free (server->proxy_addr);
-     if (server->subscriptions)
-         g_hash_table_destroy (server->subscriptions);
- 
-@@ -374,6 +431,10 @@ static int
+@@ -423,6 +444,10 @@ static int
  event_callback (struct lws *wsi, enum lws_callback_reasons reason,
                  void *user, void *in, size_t len)
  {
@@ -420,7 +362,7 @@ index 416d4beb..bc0323f5 100644
      NotifServer *server = (NotifServer *)user;
      Message *msg = NULL;
      int m;
-@@ -753,10 +814,11 @@ static const struct lws_protocols protocols[] = {
+@@ -812,10 +837,11 @@ static const struct lws_protocols protocols[] = {
  };
  
  static struct lws_context *
@@ -430,15 +372,10 @@ index 416d4beb..bc0323f5 100644
      struct lws_context_creation_info info;
      struct lws_context *context = NULL;
 +    char *cert_path = NULL, *key_path = NULL, *cert_type = NULL, *password = NULL;
- 
-     memset(&info, 0, sizeof info);
-     info.port = CONTEXT_PORT_NO_LISTEN;
-@@ -766,13 +828,98 @@ lws_context_new (gboolean use_ssl)
-     // have to use the default allocations for fd tables up to ulimit -n.
-     // It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we will use.
-     info.fd_limit_per_thread = 1 + 1 + 1;
-+    set_lws_proxy (&info, server);
-     char *ca_path = g_build_filename (seaf->seaf_dir, "ca-bundle.pem", NULL);
+     char *http_proxy_addr = NULL;
+     char *socks_proxy_addr = NULL;
+     gboolean has_auth = proxy_has_auth ();
+@@ -849,9 +875,93 @@ lws_context_new (gboolean use_ssl)
      if (use_ssl) {
           info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
           info.client_ssl_ca_filepath = ca_path;
@@ -530,10 +467,10 @@ index 416d4beb..bc0323f5 100644
 +    g_free (password);
 +
      if (!context) {
-         g_free (ca_path);
-         seaf_warning ("failed to create libwebsockets context\n");
+         g_free (http_proxy_addr);
+         g_free (socks_proxy_addr);
 diff --git a/daemon/seafile-config.h b/daemon/seafile-config.h
-index e5c26cea..97ec09bf 100644
+index e5c26ce..97ec09b 100644
 --- a/daemon/seafile-config.h
 +++ b/daemon/seafile-config.h
 @@ -29,6 +29,12 @@
@@ -550,7 +487,7 @@ index e5c26cea..97ec09bf 100644
  #define KEY_USE_PROXY "use_proxy"
  #define KEY_PROXY_TYPE "proxy_type"
 diff --git a/daemon/seafile-session.c b/daemon/seafile-session.c
-index b8447970..d6e591b2 100644
+index b844797..d6e591b 100644
 --- a/daemon/seafile-session.c
 +++ b/daemon/seafile-session.c
 @@ -259,6 +259,62 @@ seafile_session_init (SeafileSession *session)
@@ -626,7 +563,7 @@ index b8447970..d6e591b2 100644
          seafile_session_config_get_bool(session, KEY_USE_PROXY);
  
 diff --git a/daemon/seafile-session.h b/daemon/seafile-session.h
-index fd773379..66a0f6e8 100644
+index fd77337..66a0f6e 100644
 --- a/daemon/seafile-session.h
 +++ b/daemon/seafile-session.h
 @@ -81,6 +81,12 @@ struct _SeafileSession {
