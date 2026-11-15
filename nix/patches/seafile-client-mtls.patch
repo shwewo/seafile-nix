@@ -1,16 +1,7 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index be3541fe..dcfca0f0 100644
+index b6db096..9fd7bad 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -3,7 +3,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
- PROJECT(seafile-client)
- SET(SEAFILE_CLIENT_VERSION_MAJOR 9)
- SET(SEAFILE_CLIENT_VERSION_MINOR 0)
--SET(SEAFILE_CLIENT_VERSION_PATCH 20)
-+SET(SEAFILE_CLIENT_VERSION_PATCH 21)
- SET(PROJECT_VERSION "${SEAFILE_CLIENT_VERSION_MAJOR}.${SEAFILE_CLIENT_VERSION_MINOR}.${SEAFILE_CLIENT_VERSION_PATCH}")
- ADD_DEFINITIONS(-DSEAFILE_CLIENT_VERSION=${PROJECT_VERSION})
- ADD_DEFINITIONS(-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_26)
 @@ -41,6 +41,15 @@ OPTION(BUILD_TESTING "Build Test" OFF)
  OPTION(BUILD_DOCS "Build Documents" OFF)
  
@@ -36,7 +27,7 @@ index be3541fe..dcfca0f0 100644
    src/api/api-request.cpp
    src/api/api-error.cpp
 diff --git a/src/account-mgr.cpp b/src/account-mgr.cpp
-index f4ae1cb0..614a2561 100644
+index f4ae1cb..614a256 100644
 --- a/src/account-mgr.cpp
 +++ b/src/account-mgr.cpp
 @@ -7,11 +7,18 @@
@@ -266,7 +257,7 @@ index f4ae1cb0..614a2561 100644
  {
      ServerInfoRequest *request = new ServerInfoRequest(account);
 diff --git a/src/account-mgr.h b/src/account-mgr.h
-index d89aa7c9..c7e3b653 100644
+index d89aa7c..c7e3b65 100644
 --- a/src/account-mgr.h
 +++ b/src/account-mgr.h
 @@ -122,6 +122,9 @@ private:
@@ -280,7 +271,7 @@ index d89aa7c9..c7e3b653 100644
      static bool loadServerInfoCB(struct sqlite3_stmt *stmt, void *data);
  
 diff --git a/src/account.h b/src/account.h
-index 39fe175b..590e0ed3 100644
+index 39fe175..590e0ed 100644
 --- a/src/account.h
 +++ b/src/account.h
 @@ -29,6 +29,14 @@ public:
@@ -323,7 +314,7 @@ index 39fe175b..590e0ed3 100644
      }
  
 diff --git a/src/api/api-client.cpp b/src/api/api-client.cpp
-index 087d061c..4bfb46a8 100644
+index 087d061..4bfb46a 100644
 --- a/src/api/api-client.cpp
 +++ b/src/api/api-client.cpp
 @@ -11,6 +11,7 @@
@@ -349,7 +340,7 @@ index 087d061c..4bfb46a8 100644
          req->setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
          req->setAttribute(QNetworkRequest::CacheSaveControlAttribute, true);
 diff --git a/src/settings-mgr.cpp b/src/settings-mgr.cpp
-index 34e0e745..69be3a56 100644
+index 7c6dfdd..9591757 100644
 --- a/src/settings-mgr.cpp
 +++ b/src/settings-mgr.cpp
 @@ -41,9 +41,9 @@ const char *kComputerName = "computerName";
@@ -362,7 +353,7 @@ index 34e0e745..69be3a56 100644
 -#endif // HAVE_SHIBBOLETH_SUPPORT
 +#endif // HAVE_CLIENT_SSO_SUPPORT
  
- #if defined(Q_OS_LINUX) || defined(Q_OS_MAC)
+ #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
  const char * kSetHideWindowsIncompatibilityPathMsg = "setHideWindowsIncompatibilityPathMsg";
 @@ -652,7 +652,7 @@ int SettingsManager::repoSortOrder() const
      return repo_sort_orders_;
@@ -383,7 +374,7 @@ index 34e0e745..69be3a56 100644
  #ifdef HAVE_FINDER_SYNC_SUPPORT
  bool SettingsManager::getFinderSyncExtension() const
 diff --git a/src/settings-mgr.h b/src/settings-mgr.h
-index 03b7bca4..484538ba 100644
+index 3da1656..fbaca9e 100644
 --- a/src/settings-mgr.h
 +++ b/src/settings-mgr.h
 @@ -102,10 +102,10 @@ public:
@@ -400,7 +391,7 @@ index 03b7bca4..484538ba 100644
  #ifdef HAVE_FINDER_SYNC_SUPPORT
      bool getFinderSyncExtension() const;
 diff --git a/src/shib/shib-login-dialog.cpp b/src/shib/shib-login-dialog.cpp
-index 342278b0..57c669b2 100644
+index 342278b..57c669b 100644
 --- a/src/shib/shib-login-dialog.cpp
 +++ b/src/shib/shib-login-dialog.cpp
 @@ -6,17 +6,24 @@
@@ -455,7 +446,7 @@ index 342278b0..57c669b2 100644
  
      QUrl shib_login_url(url_);
 diff --git a/src/ui/login-dialog.cpp b/src/ui/login-dialog.cpp
-index 46e03e31..df159df8 100644
+index 46e03e3..df159df 100644
 --- a/src/ui/login-dialog.cpp
 +++ b/src/ui/login-dialog.cpp
 @@ -13,6 +13,7 @@
@@ -731,7 +722,7 @@ index 46e03e31..df159df8 100644
 -#endif // HAVE_SHIBBOLETH_SUPPORT
 +#endif // HAVE_CLIENT_SSO_SUPPORT
 diff --git a/src/ui/login-dialog.h b/src/ui/login-dialog.h
-index 9c33abbe..4c73c08a 100644
+index 9c33abb..4c73c08 100644
 --- a/src/ui/login-dialog.h
 +++ b/src/ui/login-dialog.h
 @@ -20,6 +20,10 @@ class FetchAccountInfoRequest;
@@ -811,7 +802,7 @@ index 9c33abbe..4c73c08a 100644
  #endif // HAVE_SHIBBOLETH_SUPPORT
 diff --git a/src/utils/mtls.cpp b/src/utils/mtls.cpp
 new file mode 100644
-index 00000000..c8362d39
+index 0000000..c8362d3
 --- /dev/null
 +++ b/src/utils/mtls.cpp
 @@ -0,0 +1,208 @@
@@ -1025,7 +1016,7 @@ index 00000000..c8362d39
 +} // namespace mtls
 diff --git a/src/utils/mtls.h b/src/utils/mtls.h
 new file mode 100644
-index 00000000..5df8a257
+index 0000000..5df8a25
 --- /dev/null
 +++ b/src/utils/mtls.h
 @@ -0,0 +1,62 @@

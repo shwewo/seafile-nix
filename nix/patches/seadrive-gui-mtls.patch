@@ -1,6 +1,8 @@
---- a/CMakeLists.txt	2026-09-18 07:50:29.775292581 +0200
-+++ b/CMakeLists.txt	2026-09-18 07:50:30.055299576 +0200
-@@ -427,6 +427,7 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5575394..2c80d09 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -427,6 +427,7 @@ LIST(APPEND utils_sources
      src/utils/file-utils.cpp
      src/utils/translate-commit-desc.cpp
      src/utils/json-utils.cpp
@@ -8,49 +10,10 @@
      src/utils/log.c
      src/utils/stl.cpp
      src/utils/i18n-utils.cpp
---- a/src/account.h	2026-09-18 07:50:29.796500145 +0200
-+++ b/src/account.h	2026-09-18 07:50:29.942686436 +0200
-@@ -37,6 +37,14 @@
-     bool notified_start_extension;
-     int connect_daemon_retry;
- 
-+    // Per-account mutual-TLS client certificate.
-+    QString clientSslCertPath;
-+    QString clientSslKeyPath;
-+    QString clientSslCertType;     // "PEM" (default) or "P12"
-+    QString clientSslCertPassword;
-+
-+    bool hasClientSslCert() const { return !clientSslCertPath.isEmpty(); }
-+
-     Account() : serverInfo(),
-                 lastVisited(0),
-                 isShibboleth(false),
-@@ -79,7 +87,11 @@
-         isKerberos(rhs.isKerberos),
-         added(rhs.added),
-         notified_start_extension(rhs.notified_start_extension),
--        connect_daemon_retry(rhs.connect_daemon_retry)
-+        connect_daemon_retry(rhs.connect_daemon_retry),
-+        clientSslCertPath(rhs.clientSslCertPath),
-+        clientSslKeyPath(rhs.clientSslKeyPath),
-+        clientSslCertType(rhs.clientSslCertType),
-+        clientSslCertPassword(rhs.clientSslCertPassword)
-     {
-     }
- 
-@@ -101,6 +113,10 @@
-         added = rhs.added;
-         notified_start_extension = rhs.notified_start_extension;
-         connect_daemon_retry = rhs.connect_daemon_retry;
-+        clientSslCertPath = rhs.clientSslCertPath;
-+        clientSslKeyPath = rhs.clientSslKeyPath;
-+        clientSslCertType = rhs.clientSslCertType;
-+        clientSslCertPassword = rhs.clientSslCertPassword;
-         return *this;
-     }
- 
---- a/src/account-mgr.cpp	2026-09-18 07:50:29.796500145 +0200
-+++ b/src/account-mgr.cpp	2026-09-18 07:50:29.942557289 +0200
+diff --git a/src/account-mgr.cpp b/src/account-mgr.cpp
+index 8081131..3da91f6 100644
+--- a/src/account-mgr.cpp
++++ b/src/account-mgr.cpp
 @@ -7,6 +7,16 @@
  #include <QDateTime>
  #include <QMutexLocker>
@@ -83,8 +46,8 @@
 +#include "utils/mtls.h"
  
  #ifdef Q_OS_WIN32
- #include "utils/file-utils.h"
-@@ -36,6 +49,15 @@
+ const char *const kPreconfigureCustomSyncRootName = "PreconfigureCustomSyncRootName";
+@@ -38,6 +51,15 @@ const char *kTotalStorage = "storage.total";
  const char *kUsedStorage = "storage.used";
  const char *kNickname = "name";
  
@@ -100,7 +63,7 @@
  bool getShibbolethColumnInfoCallBack(sqlite3_stmt *stmt, void *data)
  {
      bool *has_shibboleth_column = static_cast<bool*>(data);
-@@ -218,6 +240,16 @@
+@@ -220,6 +242,16 @@ int AccountManager::start()
  
      loadAccounts();
  
@@ -117,7 +80,7 @@
  #ifdef Q_OS_WIN32
      loadSyncRootInfo();
  #endif
-@@ -247,6 +279,18 @@
+@@ -249,6 +281,18 @@ bool AccountManager::loadAccountsCB(sqlite3_stmt *stmt, void *data)
      sqlite_foreach_selected_row (userdata->db, zql, loadServerInfoCB, &account);
      sqlite3_free(zql);
  
@@ -136,31 +99,31 @@
      userdata->accounts->push_back(account);
      return true;
  }
-@@ -328,6 +372,23 @@
+@@ -366,6 +410,23 @@ void AccountManager::enableAccount(const Account& account) {
      sqlite_query_exec(db, zql);
      sqlite3_free(zql);
  
 +    // Save cert to QSettings so it survives restart.
-+    if (account.hasClientSslCert()) {
++    if (new_account.hasClientSslCert()) {
 +        QSettings settings;
 +        settings.beginGroup(kClientSslCertsGroup);
-+        QString qurl = account.serverUrl.toString();
-+        settings.setValue(qurl + "/" + kClientSslCertPath, account.clientSslCertPath);
-+        settings.setValue(qurl + "/" + kClientSslKeyPath, account.clientSslKeyPath);
-+        settings.setValue(qurl + "/" + kClientSslCertType, account.clientSslCertType);
-+        settings.setValue(qurl + "/" + kClientSslCertPassword, account.clientSslCertPassword);
++        QString qurl = new_account.serverUrl.toString();
++        settings.setValue(qurl + "/" + kClientSslCertPath, new_account.clientSslCertPath);
++        settings.setValue(qurl + "/" + kClientSslKeyPath, new_account.clientSslKeyPath);
++        settings.setValue(qurl + "/" + kClientSslCertType, new_account.clientSslCertType);
++        settings.setValue(qurl + "/" + kClientSslCertPassword, new_account.clientSslCertPassword);
 +        settings.endGroup();
 +    }
 +
 +    syncClientSslCerts();
 +
-+    if (account.hasClientSslCert())
-+        applyMtlsSslConfig(account);
++    if (new_account.hasClientSslCert())
++        applyMtlsSslConfig(new_account);
 +
-     fetchAccountInfoFromServer(account);
+     fetchAccountInfoFromServer(new_account);
  }
  
-@@ -363,6 +424,20 @@
+@@ -401,6 +462,20 @@ int AccountManager::removeAccount(const Account& account)
      }
  #endif
  
@@ -181,7 +144,7 @@
      if (allAccounts().empty()) {
          gui->trayIcon()->showLoginDialog();
      }
-@@ -503,6 +578,137 @@
+@@ -541,6 +616,137 @@ Account AccountManager::getAccountByDomainID (const QString& domain_id) const
      return Account();
  }
  
@@ -319,7 +282,7 @@
  void AccountManager::fetchAccountInfoFromServer(const Account& account)
  {
      FetchAccountInfoRequest* fetch_account_info_request = new FetchAccountInfoRequest(account);
-@@ -686,8 +892,10 @@
+@@ -724,8 +930,10 @@ void AccountManager::clearAccountToken(const Account& account,
  void AccountManager::reloginAccount(const Account &account)
  {
      if (account.isShibboleth) {
@@ -330,9 +293,11 @@
          return;
      }
  
---- a/src/account-mgr.h	2026-09-18 07:50:29.796500145 +0200
-+++ b/src/account-mgr.h	2026-09-18 07:50:29.942604971 +0200
-@@ -101,6 +101,12 @@
+diff --git a/src/account-mgr.h b/src/account-mgr.h
+index 48c4bec..56b50bb 100644
+--- a/src/account-mgr.h
++++ b/src/account-mgr.h
+@@ -103,6 +103,12 @@ public:
  
      void addAccountConnectDaemonRetry(Account& account);
  
@@ -345,8 +310,53 @@
  #ifdef Q_OS_WIN32
      QString getPreviousSyncRootName(const Account& account);
      const QString genSyncRootName(const Account& account);
---- a/src/api/api-client.cpp	2026-09-18 07:50:29.796500145 +0200
-+++ b/src/api/api-client.cpp	2026-09-18 07:50:29.932276824 +0200
+diff --git a/src/account.h b/src/account.h
+index 0b296c1..d4cb94e 100644
+--- a/src/account.h
++++ b/src/account.h
+@@ -37,6 +37,14 @@ public:
+     bool notified_start_extension;
+     int connect_daemon_retry;
+ 
++    // Per-account mutual-TLS client certificate.
++    QString clientSslCertPath;
++    QString clientSslKeyPath;
++    QString clientSslCertType;     // "PEM" (default) or "P12"
++    QString clientSslCertPassword;
++
++    bool hasClientSslCert() const { return !clientSslCertPath.isEmpty(); }
++
+     Account() : serverInfo(),
+                 lastVisited(0),
+                 isShibboleth(false),
+@@ -79,7 +87,11 @@ public:
+         isKerberos(rhs.isKerberos),
+         added(rhs.added),
+         notified_start_extension(rhs.notified_start_extension),
+-        connect_daemon_retry(rhs.connect_daemon_retry)
++        connect_daemon_retry(rhs.connect_daemon_retry),
++        clientSslCertPath(rhs.clientSslCertPath),
++        clientSslKeyPath(rhs.clientSslKeyPath),
++        clientSslCertType(rhs.clientSslCertType),
++        clientSslCertPassword(rhs.clientSslCertPassword)
+     {
+     }
+ 
+@@ -101,6 +113,10 @@ public:
+         added = rhs.added;
+         notified_start_extension = rhs.notified_start_extension;
+         connect_daemon_retry = rhs.connect_daemon_retry;
++        clientSslCertPath = rhs.clientSslCertPath;
++        clientSslKeyPath = rhs.clientSslKeyPath;
++        clientSslCertType = rhs.clientSslCertType;
++        clientSslCertPassword = rhs.clientSslCertPassword;
+         return *this;
+     }
+ 
+diff --git a/src/api/api-client.cpp b/src/api/api-client.cpp
+index c01bb79..a8b7cc4 100644
+--- a/src/api/api-client.cpp
++++ b/src/api/api-client.cpp
 @@ -10,6 +10,7 @@
  // #include "ui/main-window.h"
  // #include "ui/ssl-confirm-dialog.h"
@@ -355,7 +365,7 @@
  #include "network-mgr.h"
  
  #include "api-client.h"
-@@ -80,6 +81,11 @@
+@@ -80,6 +81,11 @@ SeafileApiClient::~SeafileApiClient()
  
  void SeafileApiClient::prepareRequest(QNetworkRequest *req)
  {
@@ -367,9 +377,11 @@
      if (use_cache_) {
          req->setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
          req->setAttribute(QNetworkRequest::CacheSaveControlAttribute, true);
---- a/src/seadrive-gui.cpp	2026-09-18 07:50:29.800668886 +0200
-+++ b/src/seadrive-gui.cpp	2026-09-18 07:50:29.945696657 +0200
-@@ -480,8 +480,8 @@
+diff --git a/src/seadrive-gui.cpp b/src/seadrive-gui.cpp
+index 76dc58e..a467721 100644
+--- a/src/seadrive-gui.cpp
++++ b/src/seadrive-gui.cpp
+@@ -480,8 +480,8 @@ void SeadriveGui::start()
  
      // The life cycle of seadrive daemon is managed by OS on mac, the
      // seadrive-gui has to wait until connect succeed.
@@ -380,8 +392,10 @@
      connect_daemon_timer_.start(kConnectDaemonIntervalMsec);
  
      RemoteWipeService::instance()->start();
---- a/src/ui/login-dialog.cpp	2026-09-18 07:50:29.802293255 +0200
-+++ b/src/ui/login-dialog.cpp	2026-09-18 07:50:29.936203846 +0200
+diff --git a/src/ui/login-dialog.cpp b/src/ui/login-dialog.cpp
+index 9ab1dad..f17f0bb 100644
+--- a/src/ui/login-dialog.cpp
++++ b/src/ui/login-dialog.cpp
 @@ -5,6 +5,10 @@
  #include <QInputDialog>
  #include <QStringList>
@@ -404,7 +418,7 @@
  #include "api/sso-status.h"
  #include "ui/sync-root-name-dialog.h"
  
-@@ -97,6 +104,118 @@
+@@ -97,6 +104,118 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
      move(screen.center() - this->rect().center());
  
      setupShibLoginLink();
@@ -523,7 +537,7 @@
  }
  
  void LoginDialog::setupShibLoginLink()
-@@ -116,6 +235,65 @@
+@@ -116,6 +235,65 @@ void LoginDialog::initFromAccount(const Account& account)
  
      mUsername->setText(account.username);
      mPassword->setFocus(Qt::OtherFocusReason);
@@ -589,7 +603,7 @@
  }
  
  void LoginDialog::doLogin()
-@@ -133,6 +311,8 @@
+@@ -133,6 +311,8 @@ void LoginDialog::doLogin()
          delete request_;
      }
  
@@ -598,7 +612,7 @@
      request_ = new LoginRequest(url_, username_, password_, computer_name_);
      if (!two_factor_auth_token_.isEmpty()) {
          request_->setHeader(kSeafileOTPHeader, two_factor_auth_token_);
-@@ -295,6 +475,14 @@
+@@ -299,6 +479,14 @@ void LoginDialog::onFetchAccountInfoSuccess(const AccountInfo& info)
      // The genSyncRootName() function retrieves the account info, but updateAccountInfo() should be executed after enableAccount(), which should follow setSyncRootName(). As a result, we will update the account info in advance.
      account.accountInfo = info;
  
@@ -612,8 +626,8 @@
 +
  #ifdef Q_OS_WIN32
      if (gui->accountManager()->getPreviousSyncRootName(account).isEmpty()) {
-         QString name = gui->accountManager()->genSyncRootName(account);
-@@ -423,10 +611,12 @@
+         QString name = gui->readPreconfigureExpandedString(kPreconfigureCustomSyncRootName, QVariant(), true);
+@@ -439,10 +627,12 @@ void LoginDialog::loginWithShib()
  void LoginDialog::serverInfoSuccess(const ServerInfo& info)
  {
      if (!info.clientSSOViaLocalBrowser) {
@@ -626,8 +640,10 @@
          return;
      }
  
---- a/src/ui/login-dialog.h	2026-09-18 07:50:29.802293255 +0200
-+++ b/src/ui/login-dialog.h	2026-09-18 07:50:29.936246292 +0200
+diff --git a/src/ui/login-dialog.h b/src/ui/login-dialog.h
+index e93e57f..d4c1551 100644
+--- a/src/ui/login-dialog.h
++++ b/src/ui/login-dialog.h
 @@ -8,6 +8,7 @@
  #include <QTimer>
  #include <QString>
@@ -636,7 +652,7 @@
  #include <QNetworkReply>
  
  class Account;
-@@ -18,6 +19,10 @@
+@@ -18,6 +19,10 @@ class FetchAccountInfoRequest;
  class AccountInfo;
  class ServerInfo;
  class ClientSSOStatus;
@@ -647,7 +663,7 @@
  
  class LoginDialog : public QDialog,
                      public Ui::LoginDialog
-@@ -41,6 +46,9 @@
+@@ -41,6 +46,9 @@ private slots:
      void checkClientSSOStatus();
      void clientSSOStatusSuccess(const ClientSSOStatus&);
      void clientSSOStatusFailed(const ApiError&);
@@ -657,7 +673,7 @@
  
  private:
      Q_DISABLE_COPY(LoginDialog);
-@@ -51,6 +59,10 @@
+@@ -51,6 +59,10 @@ private:
      };
  
      void setupShibLoginLink();
@@ -668,7 +684,7 @@
      bool validateInputs();
      void disableInputs();
      void enableInputs();
-@@ -74,6 +86,18 @@
+@@ -74,6 +86,18 @@ private:
      bool client_sso_success_;
  
      LoginMode mode_;
@@ -687,8 +703,11 @@
  };
  
  #endif // SEAFILE_CLIENT_LOGIN_DIALOG_H
---- /dev/null	2026-09-08 11:55:30.564742568 +0200
-+++ b/src/utils/mtls.cpp	2026-09-18 07:50:29.939891999 +0200
+diff --git a/src/utils/mtls.cpp b/src/utils/mtls.cpp
+new file mode 100644
+index 0000000..6e08d1b
+--- /dev/null
++++ b/src/utils/mtls.cpp
 @@ -0,0 +1,202 @@
 +#include <QByteArray>
 +#include <QDebug>
@@ -893,8 +912,11 @@
 +
 +} // namespace mtls
 \ No newline at end of file
---- /dev/null	2026-09-08 11:55:30.564742568 +0200
-+++ b/src/utils/mtls.h	2026-09-18 07:50:29.939928295 +0200
+diff --git a/src/utils/mtls.h b/src/utils/mtls.h
+new file mode 100644
+index 0000000..48a5b11
+--- /dev/null
++++ b/src/utils/mtls.h
 @@ -0,0 +1,51 @@
 +#ifndef SEADRIVE_GUI_UTILS_MTLS_H
 +#define SEADRIVE_GUI_UTILS_MTLS_H

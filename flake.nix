@@ -30,10 +30,10 @@
         seafile = {
           owner = "haiwen";
           repo = "seafile";
-          rev = "v9.0.20";
-          hash = "sha256-PBoZDhY7GN8UuYUSXBCPZyBHBtlNcYK+0yS/rl66v9I=";
+          rev = "v9.0.22";
+          hash = "sha256-vVrDbKYrxF9puL8Ak+EEYZahKcRs/D/+TGDNtynimEc=";
         };
-        # Pinned to the same v9.0.20 as `seafile` (core) — the two are
+        # Pinned to the same tag as `seafile` (core) — the two are
         # released in lockstep upstream and seafile-client links against
         # libseafile's headers, so keeping both at the same tag avoids an
         # ABI/constant skew (e.g. a client-side error case referencing a
@@ -41,26 +41,26 @@
         seafile-client = {
           owner = "haiwen";
           repo = "seafile-client";
-          rev = "v9.0.20";
-          hash = "sha256-0idZCoTsuC32DolSLFDknQjvGWHGd4DQPCUyqocuuKA=";
+          rev = "v9.0.22";
+          hash = "sha256-aejBOYpmvPDEma7sJG4RvRgCpXT3DEv/gqOGexv21/Y=";
         };
         seadrive-fuse = {
           owner = "haiwen";
           repo = "seadrive-fuse";
-          rev = "v3.0.26";
-          hash = "sha256-cX/cvEFvbk19kfnL83gxW3JMJpUnN7ycZACpCO2XQ/w=";
+          rev = "v3.0.27";
+          hash = "sha256-qP0DfZcEiE8FppcPDSmRO6pe3s5W0G1tXdVS5Ya9MJ8=";
         };
         seadrive-gui = {
           owner = "haiwen";
           repo = "seadrive-gui";
-          rev = "v3.0.22";
-          hash = "sha256-1RvNJMMPqxsHJx61lvbdpuKgmyo0r66cAMj5uk58AT4=";
+          rev = "v3.0.27";
+          hash = "sha256-QJ8ZZA25OcSoVIFvAQ9WMB1nTHWCxcu7DnTV1UIuMrA=";
         };
         seadroid = {
           owner = "haiwen";
           repo = "seadroid";
-          rev = "v4.0.13";
-          hash = "sha256-eoPgCOOzkS4J31/j3UQOsrrJ+Duw2Irrd2Bez7QPWtM=";
+          rev = "v4.0.16";
+          hash = "sha256-6OiUwvbBRS3vOWiRW2xkGshoEfGp0C5QFDYpqiSlN9M=";
         };
       };
 
