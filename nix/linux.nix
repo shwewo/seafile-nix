@@ -15,9 +15,14 @@ let
 
   # ── SeaDrive derivations ─────────────────────────────────────────────────────
 
-  seadrive-fuse = pkgs.seadrive-fuse.overrideAttrs (_old: {
+  # nixpkgs dropped fuse2 and marks seadrive-fuse broken ("stuck on fuse2");
+  # build it against our own fuse2 (nix/fuse2) instead.
+  fuse2 = pkgs.callPackage ./fuse2 { };
+
+  seadrive-fuse = (pkgs.seadrive-fuse.override { fuse = fuse2; }).overrideAttrs (old: {
     version = seadriveVersion;
     src = seadriveFuseSrc;
+    meta = old.meta // { broken = false; };
   });
 
   seadrive-gui = (pkgs.seadrive-gui.override {
@@ -104,7 +109,7 @@ let
   seadriveBundlePkgs = with qt6; [
     seadrive-gui seadrive-fuse
     qtlocation qtpositioning qtwebchannel qtwebsockets qtwebengine
-  ] ++ commonPkgs ++ [ pkgs.fuse ];
+  ] ++ commonPkgs ++ [ fuse2 ];
 
   seadrive-appdir = runCommand "seadrive-appdir-${seadriveVersion}"
     {
