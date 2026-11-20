@@ -70,6 +70,23 @@ the account screens. Java conflicts are much easier to reason about than C ones.
 
 ## Bumping a component
 
+You usually don't need to look for new tags yourself. Every Monday the `Upstream check`
+workflow runs `check-bump.sh` on every component at upstream's latest tag:
+
+- The patch applies: it opens a PR with the new pin. Review it and run the test checklist
+  before merging. Nothing builds on that PR, and merging publishes a release.
+- The patch doesn't apply: it opens an issue with the `check-bump.sh` output. Leave the issue
+  open until you do the bump. A closed issue is opened again the next week.
+
+`seafile` and `seafile-client` are only bumped together. To see what it would do, without
+changing anything:
+
+```bash
+scripts/weekly-bump.sh
+```
+
+To check or bump one component by hand:
+
 ```bash
 scripts/check-bump.sh seadrive-gui            # latest tag
 scripts/check-bump.sh seadrive-gui v3.0.28    # specific tag

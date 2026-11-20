@@ -1,0 +1,26 @@
+name: Upstream check
+
+# Weekly: runs scripts/check-bump.sh on every component at upstream's latest
+# tag. Opens a PR when the patch applies, an issue when it doesn't, and does
+# nothing when everything is current. See scripts/weekly-bump.sh.
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency: upstream-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v14
+      - run: scripts/weekly-bump.sh --open-github
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
