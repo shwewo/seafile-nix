@@ -6,7 +6,7 @@ Seafile and SeaDrive desktop clients, plus the Android app, built with mutual TL
 
 One monorepo, no forks: every component is pristine upstream ([haiwen](https://github.com/haiwen)) source fetched at a pinned tag, with a small mTLS patch from `nix/patches/` applied on top. Pins live in the `versions` block of `flake.nix`; patches apply via `pkgs.applyPatches` in `nix/default.nix`. See [Bumping a version](#bumping-a-version) below.
 
-Every push to `main` first checks that every patch still applies against its pinned tag (`patches` job), then builds four artifacts in parallel and publishes them together as one new [release](../../releases):
+Every push to `main` that changes a build input (`flake.nix`, `flake.lock`, `nix/`, the bundle scripts; docs-only pushes are skipped) first checks that every patch still applies against its pinned tag (`patches` job), then builds four artifacts in parallel and publishes them together as one new [release](../../releases):
 
 | CI job | Runner | Artifact |
 |---|---|---|
