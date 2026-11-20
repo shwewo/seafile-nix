@@ -27,8 +27,10 @@ nix/fuse2/                # libfuse 2.9.9 for seadrive-fuse (nixpkgs removed fus
                           # drop once seadrive-fuse supports fuse3
 scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
 scripts/check-bump.sh     # check/apply a version bump; regenerate a patch
+scripts/weekly-bump.sh    # CI glue: check-bump.sh on every component -> PR or issue
 MAINTAINING.md            # how to bump without being a C expert; test checklist
 .github/workflows/build.yml  # builds everything, one release per push to main
+.github/workflows/upstream.yml  # weekly weekly-bump.sh run
 ```
 
 ## Coupled pins
