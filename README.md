@@ -140,6 +140,14 @@ Edit the `rev` for the component in the `versions` block of `flake.nix`, then `n
 
 If `nix/patches/<name>-mtls.patch` no longer applies cleanly against the new tag, `pkgs.applyPatches` (or, for Android, `./gradlew`) fails and points at the rejected hunk. Look at only that hunk — a few lines of context around the conflict — and reconcile it with the new upstream code; don't reread the whole file or the rest of the codebase to do this.
 
+You usually don't have to look for new tags yourself. The `Upstream check` workflow (`.github/workflows/upstream.yml`) runs every Monday. For each component it finds upstream's newest release tag and tries the patch on it. If the patch applies, it opens a PR with the bump. If not, it opens an issue with the rejected hunks. `seafile` and `seafile-client` are always moved together. To get the same report locally without changing anything:
+
+```
+scripts/check-upstream.sh
+```
+
+A PR from it only means the patch applied. Review the upstream changes to the patched files before merging.
+
 ## Later: iOS
 
 Not started. haiwen doesn't publish an open-source iOS client the same way, so this needs more scoping than a tag pin — flagging here so it isn't forgotten.

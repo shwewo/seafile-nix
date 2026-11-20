@@ -91,5 +91,9 @@
     {
       packages = lib.mapAttrs (_: v: v.packages) combined;
       devShells = lib.mapAttrs (_: v: v.devShells) combined;
+
+      # Exposed so scripts/check-upstream.sh can read the pins and re-run
+      # nix/default.nix with one of them swapped for a newer upstream tag.
+      inherit versions;
     };
 }

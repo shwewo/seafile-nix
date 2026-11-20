@@ -1,0 +1,28 @@
+name: Upstream check
+
+# Weekly: for each component, find upstream's newest release tag and try the
+# mTLS patch on it. Opens a PR when the patch applies, an issue when it
+# doesn't, and does nothing when everything is current. See
+# scripts/check-upstream.sh.
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency: upstream-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v14
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: scripts/check-upstream.sh --open-github
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

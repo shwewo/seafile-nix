@@ -26,7 +26,9 @@ nix/patches/*-mtls.patch  # one per component, mTLS-only
 nix/patches/qtbase-macos27-tray-crash.patch  # not mTLS: Qt 6.12 backport for the macOS
                           # bundle's libqcocoa only; drop once nixpkgs has Qt >= 6.12
 scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
+scripts/check-upstream.sh # tries each patch on upstream's newest tag (report, or PR/issue in CI)
 .github/workflows/build.yml  # builds everything, one release per push to main
+.github/workflows/upstream.yml  # weekly check-upstream.sh run
 ```
 
 ## Pins that aren't "latest"
