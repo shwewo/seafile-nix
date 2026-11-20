@@ -29,7 +29,8 @@ scripts/darwin/bundle.sh  # makes Seafile.app relocatable (no /nix/store refs)
 scripts/check-bump.sh     # check/apply a version bump; regenerate a patch
 scripts/weekly-bump.sh    # CI glue: check-bump.sh on every component -> PR or issue
 MAINTAINING.md            # how to bump without being a C expert; test checklist
-.github/workflows/build.yml  # builds everything, one release per push to main
+.github/workflows/build.yml  # builds everything, one release per push to main that touches
+                             # a build input (its `paths:` list; add new build files there)
 .github/workflows/upstream.yml  # weekly weekly-bump.sh run
 ```
 

@@ -3,6 +3,16 @@ name: Build
 on:
   push:
     branches: [main]
+    # Only what goes into the artifacts. Docs and maintenance scripts
+    # (check-bump.sh, weekly-bump.sh, upstream.yml) don't trigger a release.
+    # A new file the build reads must be added here too.
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - scripts/darwin/**
+      - scripts/linux/**
+      - .github/workflows/build.yml
   workflow_dispatch:
 
 jobs:
